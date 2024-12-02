@@ -148,7 +148,7 @@ func GetOrders(c *gin.Context) {
 		}
 
 		// Lưu vào Redis Cache
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allOrders, time.Hour); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allOrders, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách đơn hàng vào Redis: %v", err)
 		}
 	}
@@ -321,13 +321,31 @@ func CreateOrder(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng không hợp lệ"})
 		return
 	}
-	var info models.User
+
+	var userInfo models.User
 	var userId *uint
-	if err := config.DB.Where("phone_number =?", request.GuestPhone).First(&info).Error; err != nil {
-		userId = nil
+	var actor Actor
+
+	if err := config.DB.Where("phone_number = ?", request.GuestPhone).First(&userInfo).Error; err == nil {
+		// Nếu tìm thấy người dùng, lấy ID và tạo Actor từ thông tin người dùng
+		userId = new(uint)
+		*userId = userInfo.ID
+
+		actor = Actor{
+			Name:        userInfo.Name,
+			Email:       userInfo.Email,
+			PhoneNumber: userInfo.PhoneNumber,
+		}
 	} else {
-		userId = &info.ID
+		// Nếu không tìm thấy người dùng, tạo Actor từ guest information
+		userId = nil
+		actor = Actor{
+			Name:        request.GuestName,
+			Email:       request.GuestEmail,
+			PhoneNumber: request.GuestPhone,
+		}
 	}
+
 	order := models.Order{
 		UserID:          userId,
 		AccommodationID: request.AccommodationID,
@@ -340,7 +358,6 @@ func CreateOrder(c *gin.Context) {
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-
 	numDays := int(checkOutDate.Sub(checkInDate).Hours() / 24)
 	if numDays <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng phải sau ngày nhận phòng"})
@@ -399,7 +416,7 @@ func CreateOrder(c *gin.Context) {
 			return
 		}
 
-		price = accommodation.Price
+		price = accommodation.Price * numDays
 	}
 
 	order.Price = price
@@ -516,9 +533,9 @@ func CreateOrder(c *gin.Context) {
 
 	var user Actor
 	if order.UserID != nil {
-		user = Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
+		user = actor
 	} else {
-		user = Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
+		user = actor
 	}
 
 	accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)

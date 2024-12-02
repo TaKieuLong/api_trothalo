@@ -501,6 +501,10 @@ func ApplyDiscountForUser(user models.User) (float64, error) {
 	var applicableDiscount models.Discount
 
 	for _, discount := range discounts {
+		if discount.ID == 1 {
+			applicableDiscount = discount
+			break
+		}
 		if usageCount, used := userDiscountUsage[discount.ID]; !used || usageCount < discount.Quantity {
 			applicableDiscount = discount
 			break

@@ -140,7 +140,7 @@ func GetInvoices(c *gin.Context) {
 		return
 	}
 
-	ttl := 15 * time.Minute
+	ttl := 10 * time.Minute
 
 	err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
 	if err != nil {
@@ -323,7 +323,7 @@ func GetTotalRevenue(c *gin.Context) {
 		return
 	}
 
-	ttl := 15 * time.Minute
+	ttl := 10 * time.Minute
 	err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to save cache"})
@@ -431,7 +431,7 @@ func UpdatePaymentStatus(c *gin.Context) {
 		return
 	}
 
-	ttl := 15 * time.Minute
+	ttl := 10 * time.Minute
 	err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lưu cache Redis"})

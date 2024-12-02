@@ -55,7 +55,7 @@ func GetHolidays(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách kỳ nghỉ"})
 		return
 	}
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, holidays, time.Hour); err != nil {
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, holidays, 10*time.Minute); err != nil {
 		log.Printf("Lỗi khi lưu danh sách kỳ nghỉ vào Redis: %v", err)
 	}
 	pageStr := c.Query("page")

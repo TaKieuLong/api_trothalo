@@ -150,17 +150,6 @@ func Logout(c *gin.Context) {
 
 		c.SetCookie(cookie.Name, "", -1, "/", "", cookie.Secure, cookie.HttpOnly)
 	}
-	redisClient, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-		return
-	}
-
-	err = redisClient.FlushDB(config.Ctx).Err()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể xóa dữ liệu Redis"})
-		return
-	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng xuất thành công"})
 }
@@ -424,17 +413,24 @@ func AuthGoogle(c *gin.Context) {
 		return
 	}
 
-	user := models.User{}
+	var user models.User
 	result := config.DB.Where("email = ?", googleUser.Email).First(&user)
 
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		// Nếu chưa có tài khoản thì tạo tài khoản mới
 		user, err = services.CreateGoogleUser(googleUser.Name, googleUser.Email, googleUser.Picture)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create new user"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi tạo người dùng mới!"})
 			return
 		}
 	} else if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query user: " + result.Error.Error()})
+		// Nếu có lỗi khi tìm kiếm người dùng
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khj tìm kiếm người dùng: " + result.Error.Error()})
+		return
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Email đã được sử dụng!",
+		})
 		return
 	}
 

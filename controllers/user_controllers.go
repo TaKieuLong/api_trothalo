@@ -152,7 +152,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 		}
 
 		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allUsers, time.Hour); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allUsers, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách người dùng vào Redis: %v", err)
 		}
 	}

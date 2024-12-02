@@ -117,7 +117,7 @@ func GetAllRates(c *gin.Context) {
 		return
 	}
 
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, rateResponsesJSON, time.Hour); err != nil {
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, rateResponsesJSON, 10*time.Minute); err != nil {
 		log.Printf("Lỗi khi lưu danh sách đánh giá vào Redis: %v", err)
 	}
 

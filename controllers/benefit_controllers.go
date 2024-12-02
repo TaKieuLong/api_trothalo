@@ -127,7 +127,7 @@ func GetAllBenefit(c *gin.Context) {
 		}
 
 		// Lưu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allBenefits, time.Hour); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allBenefits, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách lợi ích vào Redis: %v", err)
 		}
 	}

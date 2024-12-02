@@ -97,7 +97,7 @@ func GetDiscounts(c *gin.Context) {
 		}
 	}
 	// Lưu vào Redis
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, discounts, time.Hour); err != nil {
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, discounts, 10*time.Minute); err != nil {
 		log.Printf("Lỗi khi lưu danh sách giảm giá vào Redis: %v", err)
 	}
 	pageStr := c.Query("page")

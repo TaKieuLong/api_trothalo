@@ -170,7 +170,7 @@ func GetAllAccommodations(c *gin.Context) {
 		}
 
 		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, time.Hour); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
 		}
 	}
@@ -354,7 +354,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, time.Hour); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
 		}
 	}
@@ -459,7 +459,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 	//Xếp theo update mới nhất
 	sort.Slice(filteredAccommodations, func(i, j int) bool {
-		return filteredAccommodations[i].UpdateAt.After(filteredAccommodations[j].UpdateAt)
+		return filteredAccommodations[i].Num > (filteredAccommodations[j].Num)
 	})
 
 	// Pagination

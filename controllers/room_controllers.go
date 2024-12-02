@@ -157,8 +157,7 @@ func GetAllRooms(c *gin.Context) {
 
 		if currentUserRole == 2 {
 			// Lấy phòng theo admin
-			tx = tx.Joins("JOIN accommodations ON accommodations.id = rooms.accommodation_id").
-				Where("accommodations.user_id = ?", currentUserID)
+			tx = tx.Joins("JOIN accommodations ON accommodations.id = rooms.accommodation_id").Where("accommodations.user_id = ?", currentUserID)
 		} else if currentUserRole == 3 {
 			// Lấy phòng theo admin (vị trí receptionist)
 			var adminID int
@@ -166,8 +165,7 @@ func GetAllRooms(c *gin.Context) {
 				c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
 				return
 			}
-			tx = tx.Joins("JOIN accommodations ON accommodations.id = rooms.accommodation_id").
-				Where("accommodations.user_id = ?", adminID)
+			tx = tx.Joins("JOIN accommodations ON accommodations.id = rooms.accommodation_id").Where("accommodations.user_id = ?", adminID)
 		}
 
 		if err := tx.Find(&allRooms).Error; err != nil {
@@ -176,7 +174,7 @@ func GetAllRooms(c *gin.Context) {
 		}
 
 		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allRooms, time.Hour); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allRooms, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách phòng vào Redis: %v", err)
 		}
 	}
@@ -229,12 +227,15 @@ func GetAllRooms(c *gin.Context) {
 		filteredRooms = append(filteredRooms, room)
 	}
 
+	// Tính toán tổng số phòng sau khi lọc
+	total := len(filteredRooms)
+
 	// Pagination
 	start := page * limit
 	end := start + limit
-	if start >= len(filteredRooms) {
+	if start >= total {
 		filteredRooms = []models.Room{}
-	} else if end > len(filteredRooms) {
+	} else if end > total {
 		filteredRooms = filteredRooms[start:]
 	} else {
 		filteredRooms = filteredRooms[start:end]
@@ -264,6 +265,7 @@ func GetAllRooms(c *gin.Context) {
 		})
 	}
 
+	// Response với pagination và total count
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Lấy danh sách phòng thành công",
@@ -271,7 +273,7 @@ func GetAllRooms(c *gin.Context) {
 		"pagination": gin.H{
 			"page":  page,
 			"limit": limit,
-			"total": len(filteredRooms),
+			"total": total,
 		},
 	})
 }
@@ -311,6 +313,7 @@ func GetAllRoomsUser(c *gin.Context) {
 
 	tx := config.DB.Model(&models.Room{}).Preload("Parent")
 
+	// Áp dụng các bộ lọc cho truy vấn
 	if accommodationFilter != "" {
 		decodedAccommodationFilter, err := url.QueryUnescape(accommodationFilter)
 		if err != nil {
@@ -367,10 +370,20 @@ func GetAllRoomsUser(c *gin.Context) {
 		}
 	}
 
-	tx.Count(&totalRooms)
+	// Đếm tổng số bản ghi thỏa mãn các bộ lọc
+	if err := tx.Count(&totalRooms).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    0,
+			"mess":    "Không thể đếm số lượng phòng",
+			"details": err.Error(),
+		})
+		return
+	}
 
+	// Sắp xếp theo cập nhật mới nhất
 	tx = tx.Order("updated_at DESC")
 
+	// Lấy danh sách phòng với phân trang
 	if err := tx.Offset(offset).Limit(limit).Find(&rooms).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    0,
@@ -404,6 +417,7 @@ func GetAllRoomsUser(c *gin.Context) {
 		roomResponses = append(roomResponses, roomResponse)
 	}
 
+	// Trả về kết quả
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Lấy danh sách phòng thành công",
@@ -658,18 +672,19 @@ func UpdateRoom(c *gin.Context) {
 			adminCacheKey := fmt.Sprintf("rooms:admin:%d", currentUserID)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
+			_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:all")
 			var receptionistIDs []int
 			if err := config.DB.Model(&models.User{}).Where("admin_id = ?", currentUserID).Pluck("id", &receptionistIDs).Error; err == nil {
 				for _, receptionistID := range receptionistIDs {
 					receptionistCacheKey := fmt.Sprintf("rooms:receptionist:%d", receptionistID)
 					_ = services.DeleteFromRedis(config.Ctx, rdb, receptionistCacheKey)
-					_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
 				}
 			}
 		case 3: // Receptionist
 			var adminID int
 			if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err == nil {
 				adminCacheKey := fmt.Sprintf("rooms:admin:%d", adminID)
+				_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:all")
 				receptionistCacheKey := fmt.Sprintf("rooms:receptionist:%d", currentUserID)
 				_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
 				_ = services.DeleteFromRedis(config.Ctx, rdb, receptionistCacheKey)
@@ -728,12 +743,12 @@ func ChangeRoomStatus(c *gin.Context) {
 			adminCacheKey := fmt.Sprintf("rooms:admin:%d", currentUserID)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
+			_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:all")
 			var receptionistIDs []int
 			if err := config.DB.Model(&models.User{}).Where("admin_id = ?", currentUserID).Pluck("id", &receptionistIDs).Error; err == nil {
 				for _, receptionistID := range receptionistIDs {
 					receptionistCacheKey := fmt.Sprintf("rooms:receptionist:%d", receptionistID)
 					_ = services.DeleteFromRedis(config.Ctx, rdb, receptionistCacheKey)
-					_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
 				}
 			}
 		case 3: // Receptionist
