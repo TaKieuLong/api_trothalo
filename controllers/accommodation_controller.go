@@ -297,7 +297,6 @@ func GetAllAccommodations(c *gin.Context) {
 		},
 	})
 }
-
 func GetAllAccommodationsForUser(c *gin.Context) {
 	// Các tham số filter
 	typeFilter := c.Query("type")
@@ -372,6 +371,31 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			if benefitID, err := strconv.Atoi(strings.TrimSpace(benefitStr)); err == nil {
 				benefitIDs = append(benefitIDs, benefitID)
 			}
+		}
+	}
+	//gán giá trị phòng thấp nhất cho dạng hotel
+	for _, acc := range allAccommodations {
+		if acc.Type == 0 {
+			var lowestPrice int
+			if err := config.DB.Model(&models.Room{}).
+				Where("accommodation_id = ?", acc.ID).
+				Order("price DESC").
+				Pluck("price", &lowestPrice).Error; err != nil {
+				log.Printf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
+				continue
+			}
+
+			// Nếu có phòng, cập nhật giá thấp nhất cho accommodation
+			if lowestPrice > 0 {
+				acc.Price = lowestPrice
+				for i := range allAccommodations {
+					if allAccommodations[i].ID == acc.ID {
+						allAccommodations[i].Price = lowestPrice
+						break
+					}
+				}
+			}
+
 		}
 	}
 
@@ -465,7 +489,9 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	// Pagination
 	// Lấy total sau khi lọc
 	total := len(filteredAccommodations)
-
+	for _, acc := range filteredAccommodations {
+		log.Printf("Accommodation ID: %d, Price: %d", acc.ID, acc.Price)
+	}
 	// Áp dụng phân trang
 	start := page * limit
 	end := start + limit
