@@ -36,12 +36,15 @@ type OrderUserResponse struct {
 }
 
 type OrderAccommodationResponse struct {
-	ID      uint   `json:"id"`
-	Type    int    `json:"type"`
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	Price   int    `json:"price"`
-	Avatar  string `json:"avatar"`
+	ID       uint   `json:"id"`
+	Type     int    `json:"type"`
+	Name     string `json:"name"`
+	Address  string `json:"address"`
+	Ward     string `json:"ward"`
+	District string `json:"district"`
+	Province string `json:"province"`
+	Price    int    `json:"price"`
+	Avatar   string `json:"avatar"`
 }
 
 type OrderRoomResponse struct {
@@ -64,12 +67,15 @@ type CreateOrderRequest struct {
 
 func convertToOrderAccommodationResponse(accommodation models.Accommodation) OrderAccommodationResponse {
 	return OrderAccommodationResponse{
-		ID:      accommodation.ID,
-		Type:    accommodation.Type,
-		Name:    accommodation.Name,
-		Address: accommodation.Address,
-		Price:   accommodation.Price,
-		Avatar:  accommodation.Avatar,
+		ID:       accommodation.ID,
+		Type:     accommodation.Type,
+		Name:     accommodation.Name,
+		Address:  accommodation.Address,
+		Ward:     accommodation.Ward,
+		District: accommodation.District,
+		Province: accommodation.Province,
+		Price:    accommodation.Price,
+		Avatar:   accommodation.Avatar,
 	}
 }
 
