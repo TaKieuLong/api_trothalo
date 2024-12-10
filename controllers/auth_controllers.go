@@ -427,11 +427,6 @@ func AuthGoogle(c *gin.Context) {
 		// Nếu có lỗi khi tìm kiếm người dùng
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khj tìm kiếm người dùng: " + result.Error.Error()})
 		return
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Email đã được sử dụng!",
-		})
-		return
 	}
 
 	userResponse := UserLoginResponse{

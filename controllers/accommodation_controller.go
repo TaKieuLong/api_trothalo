@@ -718,7 +718,12 @@ func GetAccommodationDetail(c *gin.Context) {
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &cachedAccommodations); err == nil {
 		for _, acc := range cachedAccommodations {
 			if fmt.Sprintf("%d", acc.ID) == accommodationId {
-				lowestPrice := getLowestPriceFromRooms(acc.Rooms)
+				var price int
+				if acc.Type == 0 {
+					price = getLowestPriceFromRooms(acc.Rooms)
+				} else {
+					price = acc.Price
+				}
 				// Tạo response từ cache
 				response := AccommodationDetailResponse{
 					ID:               acc.ID,
@@ -734,7 +739,7 @@ func GetAccommodationDetail(c *gin.Context) {
 					Status:           acc.Status,
 					Num:              acc.Num,
 					People:           acc.People,
-					Price:            lowestPrice,
+					Price:            price,
 					NumBed:           acc.NumBed,
 					NumTolet:         acc.NumTolet,
 					Furniture:        acc.Furniture,
@@ -775,14 +780,19 @@ func GetAccommodationDetail(c *gin.Context) {
 		return
 	}
 
-	var lowestPrice int
-	err := config.DB.Table("rooms").
-		Where("accommodation_id = ?", accommodationId).
-		Select("MIN(price)").
-		Scan(&lowestPrice).Error
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy giá phòng thấp nhất"})
-		return
+	var price int
+	if accommodation.Type == 0 {
+		err := config.DB.Table("rooms").
+			Where("accommodation_id = ?", accommodationId).
+			Select("MIN(price)").
+			Scan(&price).Error
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy giá phòng thấp nhất"})
+			return
+		}
+	} else {
+
+		price = accommodation.Price
 	}
 	response := AccommodationDetailResponse{
 		ID:               accommodation.ID,
@@ -798,7 +808,7 @@ func GetAccommodationDetail(c *gin.Context) {
 		Status:           accommodation.Status,
 		Num:              accommodation.Num,
 		People:           accommodation.People,
-		Price:            lowestPrice,
+		Price:            price,
 		NumBed:           accommodation.NumBed,
 		NumTolet:         accommodation.NumTolet,
 		Furniture:        accommodation.Furniture,
