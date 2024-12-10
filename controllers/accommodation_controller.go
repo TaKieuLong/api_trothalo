@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"new/config"
@@ -717,6 +718,7 @@ func GetAccommodationDetail(c *gin.Context) {
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &cachedAccommodations); err == nil {
 		for _, acc := range cachedAccommodations {
 			if fmt.Sprintf("%d", acc.ID) == accommodationId {
+				lowestPrice := getLowestPriceFromRooms(acc.Rooms)
 				// Tạo response từ cache
 				response := AccommodationDetailResponse{
 					ID:               acc.ID,
@@ -732,7 +734,7 @@ func GetAccommodationDetail(c *gin.Context) {
 					Status:           acc.Status,
 					Num:              acc.Num,
 					People:           acc.People,
-					Price:            acc.Price,
+					Price:            lowestPrice,
 					NumBed:           acc.NumBed,
 					NumTolet:         acc.NumTolet,
 					Furniture:        acc.Furniture,
@@ -773,6 +775,15 @@ func GetAccommodationDetail(c *gin.Context) {
 		return
 	}
 
+	var lowestPrice int
+	err := config.DB.Table("rooms").
+		Where("accommodation_id = ?", accommodationId).
+		Select("MIN(price)").
+		Scan(&lowestPrice).Error
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy giá phòng thấp nhất"})
+		return
+	}
 	response := AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
@@ -787,7 +798,7 @@ func GetAccommodationDetail(c *gin.Context) {
 		Status:           accommodation.Status,
 		Num:              accommodation.Num,
 		People:           accommodation.People,
-		Price:            accommodation.Price,
+		Price:            lowestPrice,
 		NumBed:           accommodation.NumBed,
 		NumTolet:         accommodation.NumTolet,
 		Furniture:        accommodation.Furniture,
@@ -1075,4 +1086,18 @@ func ChangeAccommodationStatus(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái chỗ ở thành công", "data": accommodation})
+}
+
+// Hàm lấy giá thấp nhất từ danh sách phòng
+func getLowestPriceFromRooms(rooms []models.Room) int {
+	lowestPrice := math.MaxInt
+	for _, room := range rooms {
+		if room.Price < lowestPrice {
+			lowestPrice = room.Price
+		}
+	}
+	if lowestPrice == math.MaxInt {
+		return 0
+	}
+	return lowestPrice
 }
