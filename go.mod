@@ -4,12 +4,15 @@ go 1.23.0
 
 require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/fiam/gounidecode v0.0.0-20150629112515-8deddbd03fec
 	github.com/gin-contrib/cors v1.7.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.6.1
+	github.com/schollz/closestmatch v2.1.0+incompatible
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.0
+	github.com/texttheater/golang-levenshtein/levenshtein v0.0.0-20200805054039-cae8b0eaed6c
 	golang.org/x/crypto v0.28.0
 	google.golang.org/api v0.200.0
 	gorm.io/driver/postgres v1.5.9

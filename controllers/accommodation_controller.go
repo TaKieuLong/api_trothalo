@@ -12,16 +12,25 @@ import (
 	"new/models"
 	"new/services"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/fiam/gounidecode/unidecode"
+	"github.com/schollz/closestmatch"
+	"github.com/texttheater/golang-levenshtein/levenshtein"
 	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
 )
 
+type ScoredAccommodation struct {
+	Accommodation models.Accommodation `json:"accommodation"`
+	Score         int                  `json:"score"`
+}
 type AccommodationRequest struct {
 	ID               uint             `json:"id"`
 	Type             int              `json:"type"`
@@ -80,6 +89,21 @@ type AccommodationResponse struct {
 	Benefits         []models.Benefit `json:"benefits"`
 }
 
+type AccommodationResponseTest struct {
+	ID       uint             `json:"id"`
+	Type     int              `json:"type"`
+	Province string           `json:"province"`
+	Name     string           `json:"name"`
+	Status   int              `json:"status"`
+	Num      int              `json:"num"`
+	People   int              `json:"people"`
+	Price    int              `json:"price"`
+	NumBed   int              `json:"numBed"`
+	NumTolet int              `json:"numTolet"`
+	District string           `json:"district"`
+	Ward     string           `json:"ward"`
+	Benefits []models.Benefit `json:"benefits"`
+}
 type AccommodationDetailResponse struct {
 	ID               uint             `json:"id"`
 	Type             int              `json:"type"`
@@ -298,6 +322,218 @@ func GetAllAccommodations(c *gin.Context) {
 		},
 	})
 }
+
+// Hàm chuẩn hóa chuỗi
+func normalizeInput(input string) string {
+	input = strings.TrimSpace(input)
+	input = strings.ToLower(unidecode.Unidecode(input))
+	return input
+}
+
+// Tạo đối tượng closestmatch cho danh sách từ khóa
+func createMatcher(keywords []string) *closestmatch.ClosestMatch {
+	return closestmatch.New(keywords, []int{2, 3, 4})
+}
+
+// Tính độ tương đồng giữa hai chuỗi
+func calculateSimilarity(a, b string) float64 {
+	distance := levenshtein.DistanceForStrings([]rune(a), []rune(b), levenshtein.DefaultOptions)
+	maxLen := float64(len(a))
+	if float64(len(b)) > maxLen {
+		maxLen = float64(len(b))
+	}
+
+	if maxLen == 0 {
+		return 1.0 // Nếu cả hai chuỗi đều rỗng, tương đồng là 100%
+	}
+
+	similarity := 1.0 - float64(distance)/maxLen
+	return similarity
+}
+
+func extractRatingFromQuery(query string) int {
+	// Sử dụng regex để tìm các số nguyên đi kèm từ "sao"
+	re := regexp.MustCompile(`(\d+)\s*sao`) // Bắt số trước từ "sao"
+	match := re.FindStringSubmatch(query)
+	if len(match) < 2 {
+		return -1 // Không tìm thấy xếp hạng sao
+	}
+
+	// Chuyển đổi xếp hạng sao từ chuỗi thành số nguyên
+	ratingInt, err := strconv.Atoi(match[1])
+	if err != nil {
+		return -1
+	}
+	return ratingInt
+}
+
+// Tách thông tin từ query và ánh xạ type cùng xếp hạng sao
+func parseAccommodationType(query string) (int, int) {
+	// Danh sách từ khóa cho từng loại accommodation
+	hotelKeywords := []string{"khách sạn", "hotel", "khach san", "ks"}
+	homestayKeywords := []string{"homestay", "căn hộ", "nhà", "nhà nguyên căn", "can ho"}
+	villaKeywords := []string{"villa", "biệt thự", "nhà nguyên căn"}
+
+	// Chuẩn hóa query
+	normalizedQuery := normalizeInput(query)
+	rating := extractRatingFromQuery(normalizedQuery)
+
+	// Tạo matcher cho từng nhóm từ khóa
+	hotelMatcher := createMatcher(hotelKeywords)
+	homestayMatcher := createMatcher(homestayKeywords)
+	villaMatcher := createMatcher(villaKeywords)
+
+	// Tìm từ khóa gần đúng cho từng nhóm
+	hotelMatch := hotelMatcher.Closest(normalizedQuery)
+	homestayMatch := homestayMatcher.Closest(normalizedQuery)
+	villaMatch := villaMatcher.Closest(normalizedQuery)
+
+	// Kiểm tra độ khớp rõ ràng nhất (ưu tiên kết quả đầu tiên khớp)
+	if hotelMatch != "" && strings.Contains(normalizedQuery, hotelMatch) {
+		// Kiểm tra xếp hạng sao
+
+		return 0, rating // Hotel
+	}
+	if homestayMatch != "" && strings.Contains(normalizedQuery, homestayMatch) {
+		rating := extractRatingFromQuery(normalizedQuery)
+		return 1, rating // Homestay
+	}
+	if villaMatch != "" && strings.Contains(normalizedQuery, villaMatch) {
+		rating := extractRatingFromQuery(normalizedQuery)
+		return 2, rating // Villa
+	}
+
+	// Trả về -1 nếu không khớp
+	return -1, -1
+}
+
+// Tạo danh sách các giá trị duy nhất từ cơ sở dữ liệu cho closestmatch
+func prepareUniqueList(accommodations []models.Accommodation, field string) []string {
+	uniqueValues := make(map[string]bool)
+
+	for _, acc := range accommodations {
+		var value string
+		switch field {
+		case "province":
+			value = acc.Province
+		case "district":
+			value = acc.District
+		case "ward":
+			value = acc.Ward
+		}
+		if value != "" {
+			uniqueValues[normalizeInput(value)] = true
+		}
+	}
+
+	uniqueList := make([]string, 0, len(uniqueValues))
+	for val := range uniqueValues {
+		uniqueList = append(uniqueList, val)
+	}
+	return uniqueList
+}
+
+// Lấy danh sách benefit từ bảng `benefit`
+func prepareBenefitList() []string {
+	var benefits []models.Benefit
+	if err := config.DB.Model(&models.Benefit{}).Find(&benefits).Error; err != nil {
+		log.Printf("Lỗi khi truy vấn benefit: %v", err)
+		return []string{}
+	}
+
+	benefitNames := make([]string, 0, len(benefits))
+	for _, benefit := range benefits {
+		benefitNames = append(benefitNames, normalizeInput(benefit.Name))
+	}
+	return benefitNames
+}
+
+// Tính điểm phù hợp cho accommodation
+func calculateScore(query string, acc models.Accommodation, cmProvince, cmDistrict, cmWard, cmBenefit *closestmatch.ClosestMatch) int {
+	normalizedQuery := normalizeInput(query)
+	score := 0
+
+	accType, rating := parseAccommodationType(normalizedQuery)
+
+	if accType != -1 && accType == acc.Type {
+		score += 20
+	}
+
+	// Kiểm tra xếp hạng sao
+	if rating != -1 && acc.Num == rating {
+		score += 15
+	}
+
+	// Tính điểm province
+	if cmProvince.Closest(normalizedQuery) == normalizeInput(acc.Province) {
+		score += 13
+	}
+
+	// Tính điểm district
+	if cmDistrict.Closest(normalizedQuery) == normalizeInput(acc.District) {
+		score += 8
+	}
+
+	// Tính điểm ward
+	if cmWard.Closest(normalizedQuery) == normalizeInput(acc.Ward) {
+		score += 1
+	}
+
+	maxBenefitScore := 12
+	benefitScore := 0
+	for _, benefit := range acc.Benefits {
+		normalizedBenefit := normalizeInput(benefit.Name)
+
+		similarity := calculateSimilarity(normalizedQuery, normalizedBenefit)
+
+		// Chỉ cộng điểm nếu mức độ tương đồng > 70% hoặc các điều kiện khác
+		if similarity > 0.7 || strings.Contains(normalizedQuery, normalizedBenefit) || strings.Contains(normalizedBenefit, normalizedQuery) {
+			benefitScore += 4
+			if benefitScore >= maxBenefitScore {
+				break
+			}
+		}
+	}
+	score += benefitScore
+
+	return score
+}
+func filterAndScoreAccommodations(
+	query string,
+	accommodations []models.Accommodation,
+	cmProvince, cmDistrict, cmWard, cmBenefit *closestmatch.ClosestMatch,
+) []ScoredAccommodation {
+	var (
+		filteredAccommodations = make([]ScoredAccommodation, 0, len(accommodations))
+		mu                     sync.Mutex
+		wg                     sync.WaitGroup
+	)
+
+	for _, acc := range accommodations {
+		wg.Add(1) // Tăng số lượng công việc cần chờ
+		go func(acc models.Accommodation) {
+			defer wg.Done() // Đảm bảo giảm số lượng công việc sau khi xong
+			score := calculateScore(query, acc, cmProvince, cmDistrict, cmWard, cmBenefit)
+			if score > 0 {
+				mu.Lock() // Ghi kết quả vào slice cần khóa để tránh xung đột
+				filteredAccommodations = append(filteredAccommodations, ScoredAccommodation{
+					Accommodation: acc,
+					Score:         score,
+				})
+				mu.Unlock()
+			}
+		}(acc)
+	}
+
+	wg.Wait() // Chờ tất cả goroutines hoàn thành
+
+	// Sắp xếp theo điểm số giảm dần
+	sort.SliceStable(filteredAccommodations, func(i, j int) bool {
+		return filteredAccommodations[i].Score > filteredAccommodations[j].Score
+	})
+	return filteredAccommodations
+}
+
 func GetAllAccommodationsForUser(c *gin.Context) {
 	// Các tham số filter
 	typeFilter := c.Query("type")
@@ -310,6 +546,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	numBedFilter := c.Query("numBed")
 	numToletFilter := c.Query("numTolet")
 	peopleFilter := c.Query("people")
+	searchQuery := c.Query("search")
 
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
@@ -399,7 +636,9 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 		}
 	}
-
+	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
+	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
+	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
 	// Áp dụng filter trên dữ liệu từ Redis
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
@@ -418,15 +657,33 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		if provinceFilter != "" {
-			decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
-			if !strings.Contains(strings.ToLower(acc.Province), strings.ToLower(decodedProvinceFilter)) {
+			decodedProvinceFilter, err := url.QueryUnescape(provinceFilter)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu province không hợp lệ"})
+				return
+			}
+
+			// Tìm kiếm chuỗi gần đúng
+			closest := cmProvince.Closest(normalizeInput(decodedProvinceFilter))
+
+			// So sánh nếu chuỗi gần đúng khớp với province của accommodation
+			if normalizeInput(acc.Province) != closest {
 				continue
 			}
 		}
 
 		if districtFilter != "" {
 			decodedDistrictFilter, _ := url.QueryUnescape(districtFilter)
-			if !strings.Contains(strings.ToLower(acc.District), strings.ToLower(decodedDistrictFilter)) {
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu province không hợp lệ"})
+				return
+			}
+
+			// Tìm kiếm chuỗi gần đúng
+			closest := cmDistrict.Closest(normalizeInput(decodedDistrictFilter))
+
+			// So sánh nếu chuỗi gần đúng khớp với province của accommodation
+			if normalizeInput(acc.Province) != closest {
 				continue
 			}
 		}
@@ -480,6 +737,17 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			}
 		}
 		filteredAccommodations = append(filteredAccommodations, acc)
+	}
+
+	// Xử lý search query
+	if searchQuery != "" {
+		cmBenefit := createMatcher(prepareBenefitList())
+
+		scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmDistrict, cmWard, cmBenefit)
+		filteredAccommodations = []models.Accommodation{}
+		for _, scoredAcc := range scoredAccommodations {
+			filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
+		}
 	}
 
 	//Xếp theo update mới nhất
