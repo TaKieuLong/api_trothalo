@@ -498,9 +498,9 @@ func GetAllRoomsUser(c *gin.Context) {
 	}
 	paginatedRooms := filteredRooms[startIndex:endIndex]
 
-	var roomResponses []RoomResponse
+	roomResponses := make([]RoomResponse, 0)
 	for _, room := range paginatedRooms {
-		roomResponse := RoomResponse{
+		roomResponses = append(roomResponses, RoomResponse{
 			RoomId:           room.RoomId,
 			RoomName:         room.RoomName,
 			Type:             room.Type,
@@ -518,8 +518,7 @@ func GetAllRoomsUser(c *gin.Context) {
 				Id:   room.Parent.ID,
 				Name: room.Parent.Name,
 			},
-		}
-		roomResponses = append(roomResponses, roomResponse)
+		})
 	}
 
 	// Trả về kết quả
