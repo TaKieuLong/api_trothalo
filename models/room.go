@@ -26,6 +26,7 @@ type Room struct {
 	Furniture        json.RawMessage `json:"furniture" gorm:"type:json"`
 	People           int             `json:"people"`
 	Parent           Accommodation   `json:"Accommodation" gorm:"foreignKey:AccommodationID"`
+	RoomStatuses     []RoomStatus    `gorm:"foreignKey:RoomID"`
 }
 
 func (r *Room) ValidateStatus() error {

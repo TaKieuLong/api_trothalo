@@ -10,4 +10,5 @@ type RoomStatus struct {
 	Status    int       // 0: có sẵn, 1: đã đặt, 2: đang bảo trì, v.v.
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Room      Room `gorm:"foreignKey:RoomID"`
 }
