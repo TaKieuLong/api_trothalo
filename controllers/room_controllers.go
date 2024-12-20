@@ -279,13 +279,11 @@ func GetAllRooms(c *gin.Context) {
 }
 
 func GetAllRoomsUser(c *gin.Context) {
-	var rooms []models.Room
 	var totalRooms int64
 
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 	typeFilter := c.Query("type")
-	provinceFilter := c.Query("province")
 	statusFilter := c.Query("status")
 	nameFilter := c.Query("name")
 	accommodationFilter := c.Query("accommodation")
@@ -311,90 +309,101 @@ func GetAllRoomsUser(c *gin.Context) {
 
 	offset := page * limit
 
-	tx := config.DB.Model(&models.Room{}).Preload("Parent")
-
-	// Áp dụng các bộ lọc cho truy vấn
-	if accommodationFilter != "" {
-		decodedAccommodationFilter, err := url.QueryUnescape(accommodationFilter)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể giải mã tham số accommodation"})
-			return
-		}
-		tx = tx.Joins("JOIN accommodations ON accommodations.id = rooms.accommodation_id").
-			Where("accommodations.name ILIKE ?", "%"+decodedAccommodationFilter+"%")
-	}
-
-	if accommodationIdFilter != "" {
-		if parsedAccommodationId, err := strconv.Atoi(accommodationIdFilter); err == nil {
-			tx = tx.Joins("JOIN accommodations ON accommodations.id = rooms.accommodation_id").
-				Where("accommodations.id = ?", parsedAccommodationId)
-		}
-	}
-
-	if typeFilter != "" {
-		tx = tx.Where("type = ?", typeFilter)
-	}
-
-	if provinceFilter != "" {
-		tx = tx.Where("province_id = ?", provinceFilter)
-	}
-
-	if statusFilter != "" {
-		tx = tx.Where("status = ?", statusFilter)
-	}
-
-	if nameFilter != "" {
-		decodedNameFilter, err := url.QueryUnescape(nameFilter)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể giải mã tham số name"})
-			return
-		}
-		tx = tx.Where("room_name ILIKE ?", "%"+decodedNameFilter+"%")
-	}
-
-	if numBedFilter != "" {
-		if parsedNumBed, err := strconv.Atoi(numBedFilter); err == nil {
-			tx = tx.Where("num_bed = ?", parsedNumBed)
-		}
-	}
-
-	if numToletFilter != "" {
-		if parsedNumTolet, err := strconv.Atoi(numToletFilter); err == nil {
-			tx = tx.Where("num_tolet = ?", parsedNumTolet)
-		}
-	}
-
-	if peopleFilter != "" {
-		if parsedPeople, err := strconv.Atoi(peopleFilter); err == nil {
-			tx = tx.Where("people = ?", parsedPeople)
-		}
-	}
-
-	// Đếm tổng số bản ghi thỏa mãn các bộ lọc
-	if err := tx.Count(&totalRooms).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    0,
-			"mess":    "Không thể đếm số lượng phòng",
-			"details": err.Error(),
-		})
+	// Kết nối Redis
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
 		return
 	}
 
-	// Sắp xếp theo cập nhật mới nhất
-	tx = tx.Order("updated_at DESC")
+	cacheKey := "rooms:all"
+	var allRooms []models.Room
 
-	// Lấy danh sách phòng với phân trang
-	if err := tx.Offset(offset).Limit(limit).Find(&rooms).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    0,
-			"mess":    "Không thể lấy danh sách phòng",
-			"details": err.Error(),
-		})
-		return
+	// Lấy dữ liệu từ Redis
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allRooms); err != nil || len(allRooms) == 0 {
+		// Nếu Redis không có dữ liệu, lấy từ DB
+		if err := config.DB.Model(&models.Room{}).Preload("Parent").Find(&allRooms).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách phòng từ database"})
+			return
+		}
+
+		// Lưu dữ liệu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allRooms, 10*time.Minute); err != nil {
+			log.Printf("Lỗi khi lưu danh sách phòng vào Redis: %v", err)
+		}
 	}
+
+	// Áp dụng filter trên dữ liệu từ Redis
+	filteredRooms := make([]models.Room, 0)
+	for _, room := range allRooms {
+		if typeFilter != "" {
+			parsedTypeFilter, err := strconv.Atoi(typeFilter)
+			if err == nil && room.Type != uint(parsedTypeFilter) {
+				continue
+			}
+		}
+
+		if statusFilter != "" {
+			parsedStatus, _ := strconv.Atoi(statusFilter)
+			if room.Status != parsedStatus {
+				continue
+			}
+		}
+		if nameFilter != "" {
+			decodedNameFilter, _ := url.QueryUnescape(nameFilter)
+			if !strings.Contains(strings.ToLower(room.RoomName), strings.ToLower(decodedNameFilter)) {
+				continue
+			}
+		}
+		if accommodationFilter != "" {
+			decodedAccommodationFilter, _ := url.QueryUnescape(accommodationFilter)
+			if !strings.Contains(strings.ToLower(room.Parent.Name), strings.ToLower(decodedAccommodationFilter)) {
+				continue
+			}
+		}
+		if accommodationIdFilter != "" {
+			parsedAccommodationId, err := strconv.Atoi(accommodationIdFilter)
+			if err == nil && room.AccommodationID != uint(parsedAccommodationId) {
+				continue
+			}
+		}
+		if numBedFilter != "" {
+			numBed, _ := strconv.Atoi(numBedFilter)
+			if room.NumBed != numBed {
+				continue
+			}
+		}
+		if numToletFilter != "" {
+			numTolet, _ := strconv.Atoi(numToletFilter)
+			if room.NumTolet != numTolet {
+				continue
+			}
+		}
+		if peopleFilter != "" {
+			people, _ := strconv.Atoi(peopleFilter)
+			if room.People != people {
+				continue
+			}
+		}
+		filteredRooms = append(filteredRooms, room)
+	}
+
+	// Đếm tổng số phòng sau khi lọc
+	totalRooms = int64(len(filteredRooms))
+
+	// Phân trang
+	startIndex := offset
+	endIndex := offset + limit
+	if startIndex > len(filteredRooms) {
+		startIndex = len(filteredRooms)
+	}
+	if endIndex > len(filteredRooms) {
+		endIndex = len(filteredRooms)
+	}
+	paginatedRooms := filteredRooms[startIndex:endIndex]
 
 	var roomResponses []RoomResponse
-	for _, room := range rooms {
+	for _, room := range paginatedRooms {
 		roomResponse := RoomResponse{
 			RoomId:           room.RoomId,
 			RoomName:         room.RoomName,
