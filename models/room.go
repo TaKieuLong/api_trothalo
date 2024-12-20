@@ -25,7 +25,7 @@ type Room struct {
 	Num              int             `json:"num"`
 	Furniture        json.RawMessage `json:"furniture" gorm:"type:json"`
 	People           int             `json:"people"`
-	Parent           Accommodation   `json:"Accommodation" gorm:"foreignKey:AccommodationID"`
+	Parent           Accommodation   `json:"parent" gorm:"foreignKey:AccommodationID"`
 	RoomStatuses     []RoomStatus    `gorm:"foreignKey:RoomID"`
 }
 
