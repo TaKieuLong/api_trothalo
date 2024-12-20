@@ -466,6 +466,22 @@ func parseAccommodationType(query string) (int, int) {
 	return -1, -1
 }
 
+// Tạo danh sách tên khách sạn
+func prepareNameAccommodations(accommodations []models.Accommodation) []string {
+	uniqueValues := make(map[string]bool)
+	for _, acc := range accommodations {
+		value := acc.Name
+		if value != "" {
+			uniqueValues[normalizeInput(value)] = true
+		}
+	}
+	uniqueList := make([]string, 0, len(uniqueValues))
+	for val := range uniqueValues {
+		uniqueList = append(uniqueList, val)
+	}
+	return uniqueList
+}
+
 // Tạo danh sách các giá trị duy nhất từ cơ sở dữ liệu cho closestmatch
 func prepareUniqueList(accommodations []models.Accommodation, field string) []string {
 	uniqueValues := make(map[string]bool)
@@ -492,28 +508,18 @@ func prepareUniqueList(accommodations []models.Accommodation, field string) []st
 	return uniqueList
 }
 
-// Lấy danh sách benefit từ bảng `benefit`
-func prepareBenefitList() []string {
-	var benefits []models.Benefit
-	if err := config.DB.Model(&models.Benefit{}).Find(&benefits).Error; err != nil {
-		log.Printf("Lỗi khi truy vấn benefit: %v", err)
-		return []string{}
-	}
-
-	benefitNames := make([]string, 0, len(benefits))
-	for _, benefit := range benefits {
-		benefitNames = append(benefitNames, normalizeInput(benefit.Name))
-	}
-	return benefitNames
-}
-
 // Tính điểm phù hợp cho accommodation
-func calculateScore(query string, acc models.Accommodation, cmProvince, cmDistrict, cmWard, cmBenefit *closestmatch.ClosestMatch) int {
+func calculateScore(query string, acc models.Accommodation, cmProvince, cmDistrict, cmWard, cmName *closestmatch.ClosestMatch) int {
 	normalizedQuery := normalizeInput(query)
 	score := 0
 
 	accType, rating := parseAccommodationType(normalizedQuery)
 
+	if cmName.Closest(normalizedQuery) == normalizeInput(acc.Name) {
+		score += 30
+	}
+
+	//Kiểm tra loại (hotel, homestay, villa)
 	if accType != -1 && accType == acc.Type {
 		score += 20
 	}
@@ -561,7 +567,7 @@ func calculateScore(query string, acc models.Accommodation, cmProvince, cmDistri
 func filterAndScoreAccommodations(
 	query string,
 	accommodations []models.Accommodation,
-	cmProvince, cmDistrict, cmWard, cmBenefit *closestmatch.ClosestMatch,
+	cmProvince, cmDistrict, cmWard, cmName *closestmatch.ClosestMatch,
 ) []ScoredAccommodation {
 	var (
 		filteredAccommodations = make([]ScoredAccommodation, 0, len(accommodations))
@@ -573,7 +579,7 @@ func filterAndScoreAccommodations(
 		wg.Add(1) // Tăng số lượng công việc cần chờ
 		go func(acc models.Accommodation) {
 			defer wg.Done() // Đảm bảo giảm số lượng công việc sau khi xong
-			score := calculateScore(query, acc, cmProvince, cmDistrict, cmWard, cmBenefit)
+			score := calculateScore(query, acc, cmProvince, cmDistrict, cmWard, cmName)
 			if score > 0 {
 				mu.Lock() // Ghi kết quả vào slice cần khóa để tránh xung đột
 				filteredAccommodations = append(filteredAccommodations, ScoredAccommodation{
@@ -762,7 +768,11 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
 	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
 	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
+<<<<<<< HEAD
 
+=======
+	cmName := createMatcher(prepareNameAccommodations(allAccommodations))
+>>>>>>> master
 	// Áp dụng filter trên dữ liệu từ Redis
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
@@ -807,7 +817,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		if districtFilter != "" {
-			decodedDistrictFilter, _ := url.QueryUnescape(districtFilter)
+			decodedDistrictFilter, err := url.QueryUnescape(districtFilter)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu province không hợp lệ"})
 				return
@@ -816,14 +826,23 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			// Tìm kiếm chuỗi gần đúng
 			closest := cmDistrict.Closest(normalizeInput(decodedDistrictFilter))
 
-			// So sánh nếu chuỗi gần đúng khớp với province của accommodation
+			// So sánh nếu chuỗi gần đúng khớp với district của accommodation
 			if normalizeInput(acc.Province) != closest {
 				continue
 			}
 		}
 		if nameFilter != "" {
-			decodedNameFilter, _ := url.QueryUnescape(nameFilter)
-			if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedNameFilter)) {
+			decodedNameFilter, err := url.QueryUnescape(nameFilter)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu tên cơ sở không hợp lệ"})
+				return
+			}
+
+			// Tìm kiếm chuỗi gần đúng
+			closest := cmName.Closest(normalizeInput(decodedNameFilter))
+
+			// So sánh nếu chuỗi gần đúng khớp với name của accommodation
+			if normalizeInput(acc.Name) != closest {
 				continue
 			}
 		}
@@ -875,9 +894,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 	// Xử lý search query
 	if searchQuery != "" {
-		cmBenefit := createMatcher(prepareBenefitList())
 
-		scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmDistrict, cmWard, cmBenefit)
+		scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmDistrict, cmWard, cmName)
 		filteredAccommodations = []models.Accommodation{}
 		for _, scoredAcc := range scoredAccommodations {
 			filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
@@ -892,9 +910,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	// Pagination
 	// Lấy total sau khi lọc
 	total := len(filteredAccommodations)
-	for _, acc := range filteredAccommodations {
-		log.Printf("Accommodation ID: %d, Price: %d", acc.ID, acc.Price)
-	}
+
 	// Áp dụng phân trang
 	start := page * limit
 	end := start + limit
