@@ -95,6 +95,16 @@ type RoomDetail struct {
 
 var CacheKey2 = "accommodations:all"
 
+func getRoomStatuses(roomID uint, fromDate, toDate time.Time) ([]models.RoomStatus, error) {
+	var statuses []models.RoomStatus
+	err := config.DB.Where("room_id = ? AND status != 0 AND from_date <= ? AND to_date >= ?", roomID, toDate, fromDate).
+		Find(&statuses).Error
+	if err != nil {
+		return nil, err
+	}
+	return statuses, nil
+}
+
 func GetAllRooms(c *gin.Context) {
 	// Xác thực token
 	authHeader := c.GetHeader("Authorization")
@@ -173,8 +183,35 @@ func GetAllRooms(c *gin.Context) {
 			return
 		}
 
-		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allRooms, 10*time.Minute); err != nil {
+		var roomDetails []RoomDetail
+		for _, room := range allRooms {
+			roomDetails = append(roomDetails, RoomDetail{
+				RoomId:           room.RoomId,
+				RoomName:         room.RoomName,
+				Type:             room.Type,
+				NumBed:           room.NumBed,
+				NumTolet:         room.NumTolet,
+				Acreage:          room.Acreage,
+				Price:            room.Price,
+				Description:      room.Description,
+				ShortDescription: room.ShortDescription,
+				CreatedAt:        room.CreatedAt,
+				UpdatedAt:        room.UpdatedAt,
+				Status:           room.Status,
+				Avatar:           room.Avatar,
+				Img:              room.Img,
+				Num:              room.Num,
+				Furniture:        room.Furniture,
+				People:           room.People,
+				Parent: Parents{
+					Id:   room.Parent.ID,
+					Name: room.Parent.Name,
+				},
+			})
+		}
+
+		// Lưu dữ liệu ép kiểu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, roomDetails, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách phòng vào Redis: %v", err)
 		}
 	}
@@ -292,6 +329,9 @@ func GetAllRoomsUser(c *gin.Context) {
 	numToletFilter := c.Query("numTolet")
 	peopleFilter := c.Query("people")
 
+	fromDateStr := c.Query("fromDate")
+	toDateStr := c.Query("toDate")
+
 	limit := 10
 	page := 0
 
@@ -304,6 +344,25 @@ func GetAllRoomsUser(c *gin.Context) {
 	if pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p >= 0 {
 			page = p
+		}
+	}
+
+	var fromDate, toDate time.Time
+	var err error
+
+	if fromDateStr != "" {
+		fromDate, err = time.Parse("02/01/2006", fromDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
+			return
+		}
+	}
+
+	if toDateStr != "" {
+		toDate, err = time.Parse("02/01/2006", toDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
+			return
 		}
 	}
 
@@ -327,8 +386,34 @@ func GetAllRoomsUser(c *gin.Context) {
 			return
 		}
 
+		var allRoomsDetails []RoomDetail
+		for _, room := range allRooms {
+			roomDetail := RoomDetail{
+				RoomId:           room.RoomId,
+				RoomName:         room.RoomName,
+				Type:             room.Type,
+				NumBed:           room.NumBed,
+				NumTolet:         room.NumTolet,
+				Acreage:          room.Acreage,
+				Price:            room.Price,
+				ShortDescription: room.ShortDescription,
+				CreatedAt:        room.CreatedAt,
+				UpdatedAt:        room.UpdatedAt,
+				Status:           room.Status,
+				Avatar:           room.Avatar,
+				People:           room.People,
+				Parent: Parents{
+					Id:   room.Parent.ID,
+					Name: room.Parent.Name,
+				},
+				Img:       room.Img,
+				Furniture: room.Furniture,
+			}
+			allRoomsDetails = append(allRoomsDetails, roomDetail)
+		}
+
 		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allRooms, 10*time.Minute); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allRoomsDetails, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách phòng vào Redis: %v", err)
 		}
 	}
@@ -385,6 +470,17 @@ func GetAllRoomsUser(c *gin.Context) {
 				continue
 			}
 		}
+
+		statuses, err := getRoomStatuses(room.RoomId, fromDate, toDate)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+			return
+		}
+
+		if len(statuses) > 0 {
+			continue
+		}
+
 		filteredRooms = append(filteredRooms, room)
 	}
 
