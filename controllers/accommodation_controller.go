@@ -768,11 +768,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
 	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
 	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
-<<<<<<< HEAD
-
-=======
 	cmName := createMatcher(prepareNameAccommodations(allAccommodations))
->>>>>>> master
+
 	// Áp dụng filter trên dữ liệu từ Redis
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
