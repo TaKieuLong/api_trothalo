@@ -448,8 +448,10 @@ func GetAllRoomsUser(c *gin.Context) {
 		}
 		if accommodationIdFilter != "" {
 			parsedAccommodationId, err := strconv.Atoi(accommodationIdFilter)
-			if err == nil && room.AccommodationID != uint(parsedAccommodationId) {
-				continue
+			if err == nil {
+				if room.AccommodationID != uint(parsedAccommodationId) && room.Parent.ID != uint(parsedAccommodationId) {
+					continue
+				}
 			}
 		}
 		if numBedFilter != "" {

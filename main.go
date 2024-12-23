@@ -41,7 +41,7 @@ func recreateUserTable() {
 	// 	log.Fatalf("Failed to add column: %v", err)
 	// }
 
-	println("User and Bank tables have been recreated successfully.")
+	println("abc.")
 }
 
 func main() {
