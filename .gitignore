@@ -29,3 +29,4 @@ go.work.sum
 /go/pkg/mod
 
 .idea
+.env

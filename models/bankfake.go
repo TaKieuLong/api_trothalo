@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/go-playground/validator/v10"
 )
 
@@ -24,7 +25,7 @@ func validateAccountNumber(bankShortName string, accountNumbers json.RawMessage)
 		length := len(account)
 		switch bankShortName {
 		case "SACOMBANK", "VIETINBANK":
-			if length != 12 {
+			if length > 12 {
 				return fmt.Errorf("số tài khoản của %s phải có 12 chữ số", bankShortName)
 			}
 		case "VCB", "AGRIBANK":

@@ -31,6 +31,7 @@ type ScoredAccommodation struct {
 	Accommodation models.Accommodation `json:"accommodation"`
 	Score         int                  `json:"score"`
 }
+
 type AccommodationRequest struct {
 	ID               uint             `json:"id"`
 	Type             int              `json:"type"`
@@ -80,8 +81,6 @@ type AccommodationResponse struct {
 	Price            int              `json:"price"`
 	NumBed           int              `json:"numBed"`
 	NumTolet         int              `json:"numTolet"`
-	TimeCheckOut     string           `json:"timeCheckOut"`
-	TimeCheckIn      string           `json:"timeCheckIn"`
 	District         string           `json:"district"`
 	Ward             string           `json:"ward"`
 	Longitude        float64          `json:"longitude"`
@@ -104,6 +103,7 @@ type AccommodationResponseTest struct {
 	Ward     string           `json:"ward"`
 	Benefits []models.Benefit `json:"benefits"`
 }
+
 type AccommodationDetailResponse struct {
 	ID               uint             `json:"id"`
 	Type             int              `json:"type"`
@@ -132,6 +132,16 @@ type AccommodationDetailResponse struct {
 	TimeCheckIn      string           `json:"timeCheckIn"`
 	Longitude        float64          `json:"longitude"`
 	Latitude         float64          `json:"latitude"`
+}
+
+func getAccommodationStatuses(accommodationID uint, fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
+	var statuses []models.AccommodationStatus
+	err := config.DB.Where("accommodation_id = ? AND status != 0 AND from_date <= ? AND to_date >= ?", accommodationID, toDate, fromDate).
+		Find(&statuses).Error
+	if err != nil {
+		return nil, err
+	}
+	return statuses, nil
 }
 
 func GetAllAccommodations(c *gin.Context) {
@@ -194,10 +204,59 @@ func GetAllAccommodations(c *gin.Context) {
 			return
 		}
 
-		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, 10*time.Minute); err != nil {
+		accommodationsResponse := make([]AccommodationDetailResponse, 0)
+		for _, acc := range allAccommodations {
+			user := acc.User
+			// Lấy thông tin ngân hàng nếu có
+			bankShortName := ""
+			accountNumber := ""
+			bankName := ""
+			if len(user.Banks) > 0 {
+				bankShortName = user.Banks[0].BankShortName
+				accountNumber = user.Banks[0].AccountNumber
+				bankName = user.Banks[0].BankName
+			}
+
+			accommodationsResponse = append(accommodationsResponse, AccommodationDetailResponse{
+				ID:               acc.ID,
+				Type:             acc.Type,
+				Name:             acc.Name,
+				Address:          acc.Address,
+				CreateAt:         acc.CreateAt,
+				UpdateAt:         acc.UpdateAt,
+				Avatar:           acc.Avatar,
+				ShortDescription: acc.ShortDescription,
+				Status:           acc.Status,
+				Num:              acc.Num,
+				Furniture:        acc.Furniture,
+				People:           acc.People,
+				Price:            acc.Price,
+				NumBed:           acc.NumBed,
+				NumTolet:         acc.NumTolet,
+				Benefits:         acc.Benefits,
+				TimeCheckIn:      acc.TimeCheckIn,
+				TimeCheckOut:     acc.TimeCheckOut,
+				Province:         acc.Province,
+				District:         acc.District,
+				Ward:             acc.Ward,
+				Longitude:        acc.Longitude,
+				Latitude:         acc.Latitude,
+				User: Actor{
+					Name:          user.Name,
+					Email:         user.Email,
+					PhoneNumber:   user.PhoneNumber,
+					BankShortName: bankShortName,
+					AccountNumber: accountNumber,
+					BankName:      bankName,
+				},
+			})
+		}
+
+		// Lưu dữ liệu đã ép kiểu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accommodationsResponse, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
 		}
+
 	}
 
 	// Áp dụng filter từ dữ liệu cache
@@ -504,6 +563,7 @@ func calculateScore(query string, acc models.Accommodation, cmProvince, cmDistri
 
 	return score
 }
+
 func filterAndScoreAccommodations(
 	query string,
 	accommodations []models.Accommodation,
@@ -554,6 +614,9 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	peopleFilter := c.Query("people")
 	searchQuery := c.Query("search")
 
+	fromDateStr := c.Query("fromDate")
+	toDateStr := c.Query("toDate")
+
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 
@@ -569,6 +632,25 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			limit = parsedLimit
+		}
+	}
+
+	var fromDate, toDate time.Time
+	var err error
+
+	if fromDateStr != "" {
+		fromDate, err = time.Parse("02/01/2006", fromDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
+			return
+		}
+	}
+
+	if toDateStr != "" {
+		toDate, err = time.Parse("02/01/2006", toDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
+			return
 		}
 	}
 
@@ -596,11 +678,52 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			return
 		}
 
-		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, 10*time.Minute); err != nil {
+		// Ép kiểu sang AccommodationResponse
+		accommodationsResponse := make([]AccommodationDetailResponse, 0)
+		for _, acc := range allAccommodations {
+			// Lấy thông tin User
+			user := acc.User
+			accommodationsResponse = append(accommodationsResponse, AccommodationDetailResponse{
+				ID:               acc.ID,
+				Type:             acc.Type,
+				Name:             acc.Name,
+				Address:          acc.Address,
+				CreateAt:         acc.CreateAt,
+				UpdateAt:         acc.UpdateAt,
+				Avatar:           acc.Avatar,
+				ShortDescription: acc.ShortDescription,
+				Status:           acc.Status,
+				Num:              acc.Num,
+				Furniture:        acc.Furniture,
+				People:           acc.People,
+				Price:            acc.Price,
+				NumBed:           acc.NumBed,
+				NumTolet:         acc.NumTolet,
+				Benefits:         acc.Benefits,
+				TimeCheckIn:      acc.TimeCheckIn,
+				TimeCheckOut:     acc.TimeCheckOut,
+				Province:         acc.Province,
+				District:         acc.District,
+				Ward:             acc.Ward,
+				Longitude:        acc.Longitude,
+				Latitude:         acc.Latitude,
+				User: Actor{
+					Name:          user.Name,
+					Email:         user.Email,
+					PhoneNumber:   user.PhoneNumber,
+					BankShortName: user.Banks[0].BankShortName,
+					AccountNumber: user.Banks[0].AccountNumber,
+					BankName:      user.Banks[0].BankName,
+				},
+			})
+		}
+
+		// Lưu dữ liệu đã ép kiểu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accommodationsResponse, 10*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
 		}
 	}
+
 	benefitIDs := make([]int, 0)
 	//chuyển đổi thành slice int (query mặc đinh string)
 	if benefitFilterRaw != "" {
@@ -646,6 +769,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
 	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
 	cmName := createMatcher(prepareNameAccommodations(allAccommodations))
+
 	// Áp dụng filter trên dữ liệu từ Redis
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
@@ -661,6 +785,16 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			if err == nil && acc.Status != parsedStatusFilter {
 				continue
 			}
+		}
+
+		statuses, err := getAccommodationStatuses(acc.ID, fromDate, toDate)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+			return
+		}
+
+		if len(statuses) > 0 {
+			continue
 		}
 
 		if provinceFilter != "" {
