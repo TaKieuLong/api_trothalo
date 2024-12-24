@@ -105,6 +105,80 @@ func getRoomStatuses(roomID uint, fromDate, toDate time.Time) ([]models.RoomStat
 	return statuses, nil
 }
 
+func GetRoomBookingDates(c *gin.Context) {
+	roomID := c.DefaultQuery("id", "")
+	date := c.DefaultQuery("date", "")
+
+	if roomID == "" || date == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id và date là bắt buộc"})
+		return
+	}
+
+	layout := "01/2006"
+	parsedDate, err := time.Parse(layout, date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy"})
+		return
+	}
+
+	// Tính toán ngày đầu tháng và ngày cuối tháng
+	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, time.Local)
+	lastDay := firstDay.AddDate(0, 1, -1)
+
+	// Tạo danh sách tất cả các ngày trong tháng
+	var allDates []time.Time
+	for day := firstDay; day.Before(lastDay.AddDate(0, 0, 1)); day = day.AddDate(0, 0, 1) {
+		allDates = append(allDates, day)
+	}
+
+	// Lấy trạng thái phòng trong tháng yêu cầu
+	var statuses []models.RoomStatus
+	db := config.DB
+
+	err = db.Where("room_id = ?", roomID).Find(&statuses).Error
+	if err != nil {
+		log.Printf("Error retrieving room statuses: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy thông tin trạng thái phòng"})
+		return
+	}
+
+	// Tạo mảng để chứa thông tin trạng thái từng ngày
+	var roomResponses []map[string]interface{}
+
+	// Duyệt qua tất cả các ngày trong tháng
+	for _, currentDate := range allDates {
+		var statusFound bool
+		for _, status := range statuses {
+			// Kiểm tra nếu ngày hiện tại nằm trong khoảng FromDate và ToDate
+			if status.FromDate.Year() == currentDate.Year() && status.FromDate.Month() == currentDate.Month() &&
+				currentDate.After(status.FromDate.AddDate(0, 0, -1)) && currentDate.Before(status.ToDate.AddDate(0, 0, 1)) {
+
+				roomResponses = append(roomResponses, map[string]interface{}{
+					"date":   currentDate.Format("02/01/2006"),
+					"status": status.Status, // Trạng thái từ DB
+				})
+				statusFound = true
+				break
+			}
+		}
+
+		// Nếu không có trạng thái cho ngày này, thêm trạng thái là 0
+		if !statusFound {
+			roomResponses = append(roomResponses, map[string]interface{}{
+				"date":   currentDate.Format("02/01/2006"),
+				"status": 0, // Trạng thái là 0 khi không có booking
+			})
+		}
+	}
+
+	// Trả về kết quả
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy danh sách phòng thành công",
+		"data": roomResponses,
+	})
+}
+
 func GetAllRooms(c *gin.Context) {
 	// Xác thực token
 	authHeader := c.GetHeader("Authorization")
