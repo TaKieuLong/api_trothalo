@@ -144,6 +144,73 @@ func getAccommodationStatuses(accommodationID uint, fromDate, toDate time.Time) 
 	return statuses, nil
 }
 
+func GetAccBookingDates(c *gin.Context) {
+	accommodationID := c.DefaultQuery("id", "")
+	date := c.DefaultQuery("date", "")
+
+	if accommodationID == "" || date == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id và date là bắt buộc"})
+		return
+	}
+
+	layout := "01/2006"
+	parsedDate, err := time.Parse(layout, date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy"})
+		return
+	}
+
+	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, time.Local)
+	lastDay := firstDay.AddDate(0, 1, -1)
+
+	var allDates []time.Time
+	for day := firstDay; day.Before(lastDay.AddDate(0, 0, 1)); day = day.AddDate(0, 0, 1) {
+		allDates = append(allDates, day)
+	}
+
+	var statuses []models.AccommodationStatus
+	db := config.DB
+
+	err = db.Where("accommodation_id = ?", accommodationID).Find(&statuses).Error
+	if err != nil {
+		log.Printf("Error retrieving accommodation statuses: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy thông tin trạng thái phòng"})
+		return
+	}
+
+	var roomResponses []map[string]interface{}
+
+	for _, currentDate := range allDates {
+
+		var statusFound bool
+		for _, status := range statuses {
+			if status.FromDate.Year() == currentDate.Year() && status.FromDate.Month() == currentDate.Month() &&
+				currentDate.After(status.FromDate.AddDate(0, 0, -1)) && currentDate.Before(status.ToDate.AddDate(0, 0, 1)) {
+
+				roomResponses = append(roomResponses, map[string]interface{}{
+					"date":   currentDate.Format("02/01/2006"),
+					"status": status.Status,
+				})
+				statusFound = true
+				break
+			}
+		}
+
+		if !statusFound {
+			roomResponses = append(roomResponses, map[string]interface{}{
+				"date":   currentDate.Format("02/01/2006"),
+				"status": 0,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy danh sách phòng thành công",
+		"data": roomResponses,
+	})
+}
+
 func GetAllAccommodations(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
