@@ -1368,7 +1368,9 @@ func UpdateAccommodation(c *gin.Context) {
 	if request.Address != "" {
 		accommodation.Address = request.Address
 	}
-
+	if request.Price != -1 {
+		accommodation.Price = request.Price
+	}
 	if request.Avatar != "" {
 		accommodation.Avatar = request.Avatar
 	}
