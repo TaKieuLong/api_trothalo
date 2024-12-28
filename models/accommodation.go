@@ -12,8 +12,8 @@ type Accommodation struct {
 	UserID           uint                  `json:"userId"`               // ID của người dùng
 	Name             string                `json:"name"`                 // Tên khách sạn (name)
 	Address          string                `json:"address"`              // Địa chỉ khách sạn
-	CreateAt         time.Time             `gorm:"autoCreateTime" json:"createdAt"`
-	UpdateAt         time.Time             `gorm:"autoUpdateTime" json:"updatedAt"`
+	CreateAt         time.Time             `gorm:"autoCreateTime"`
+	UpdateAt         time.Time             `gorm:"autoUpdateTime"`
 	Avatar           string                `json:"avatar"`               // Avatar khách sạn
 	Img              json.RawMessage       `json:"img" gorm:"type:json"` // Hình ảnh khách sạn
 	ShortDescription string                `json:"shortDescription"`     // Mô tả ngắn (shortDescription)

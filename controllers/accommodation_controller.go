@@ -66,13 +66,13 @@ type Actor struct {
 }
 
 type AccommodationResponse struct {
-	ID               uint             `json:"id"`
-	Type             int              `json:"type"`
-	Province         string           `json:"province"`
-	Name             string           `json:"name"`
-	Address          string           `json:"address"`
-	CreateAt         time.Time        `json:"createAt"`
-	UpdateAt         time.Time        `json:"updateAt"`
+	ID               uint   `json:"id"`
+	Type             int    `json:"type"`
+	Province         string `json:"province"`
+	Name             string `json:"name"`
+	Address          string `json:"address"`
+	CreateAt         time.Time
+	UpdateAt         time.Time
 	Avatar           string           `json:"avatar"`
 	ShortDescription string           `json:"shortDescription"`
 	Status           int              `json:"status"`
@@ -105,15 +105,15 @@ type AccommodationResponseTest struct {
 }
 
 type AccommodationDetailResponse struct {
-	ID               uint             `json:"id"`
-	Type             int              `json:"type"`
-	Province         string           `json:"province"`
-	District         string           `json:"district"`
-	Ward             string           `json:"ward"`
-	Name             string           `json:"name"`
-	Address          string           `json:"address"`
-	CreateAt         time.Time        `json:"createAt"`
-	UpdateAt         time.Time        `json:"updateAt"`
+	ID               uint   `json:"id"`
+	Type             int    `json:"type"`
+	Province         string `json:"province"`
+	District         string `json:"district"`
+	Ward             string `json:"ward"`
+	Name             string `json:"name"`
+	Address          string `json:"address"`
+	CreateAt         time.Time
+	UpdateAt         time.Time
 	Avatar           string           `json:"avatar"`
 	ShortDescription string           `json:"shortDescription"`
 	Description      string           `json:"description"`
