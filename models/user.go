@@ -15,7 +15,7 @@ type User struct {
 	Code          string    `json:"code"`
 	CodeCreatedAt time.Time `gorm:"autoCreateTime" json:"codeCreatedAt"`
 	PhoneNumber   string    `gorm:"unique;type:varchar(11);not null" json:"phoneNumber"`
-	Avatar        string    `gorm:"default:'https://res.cloudinary.com/dqipg0or3/image/upload/v1728746922/uploads/oigc5k6e91shemck15uz.jpg'" json:"avatar"`
+	Avatar        string    `gorm:"default:'https://res.cloudinary.com/dqipg0or3/image/upload/v1732651349/avatars/rq8mioshkpdsyjorii65.png'" json:"avatar"`
 	Role          int       `gorm:"default:0" json:"role"`                   // 1: SuperAdmin - 2: Admin - 3: Receptionist - 0: User
 	Status        int       `gorm:"default:0" json:"status"`                 // 0: active - 1: ban
 	Gender        int       `json:"gender"`                                  // 0: Male, 1: Female, 2: Other

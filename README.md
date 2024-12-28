@@ -1,16 +1,16 @@
-# Be TROTHALO
-
-## Getting started
-
-tạo file .env
-
 ENV=dev
+
+REDIS_ADDR=redis-12401.c340.ap-northeast-2-1.ec2.redns.redis-cloud.com:12401
+REDIS_USER=default  
+REDIS_PASSWORD=lkHWEttt7el3FspCbNbuqne6O7bALGCw
 
 SECRET_KEY_ACCESS_TOKEN=access_token_secret
 SECRET_KEY_REFRESH_TOKEN=refresh_token_secret
 
-DEV_DB_HOST=dpg-crmii223esus73fts0lg-a.singapore-postgres.render.com
+DEV_DB_HOST=dpg-ctht1qlumphs73flvi5g-a.singapore-postgres.render.com
 DEV_DB_PORT=5432
-DEV_DB_USER=trothalo_user
-DEV_DB_PASSWORD=soqNez7BA5ozOh4tUBfAauq22No3BcT2
-DEV_DB_NAME=trothalo
+DEV_DB_USER=test01_ge7w_user
+DEV_DB_PASSWORD=g6VJHCsMLag2JOyGqNeFEnL5se9oMukO
+DEV_DB_NAME=test01_ge7w
+
+MAPBOX_KEY=pk.eyJ1IjoidGFraWV1bG9uZyIsImEiOiJjbTNyYXR0Y3IwM2xjMmpzY2tsdXB1bDg1In0.N2Rp_nzqe3bZKvE6gQL-tw

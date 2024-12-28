@@ -7,26 +7,25 @@ import (
 )
 
 type Room struct {
-	RoomId           uint            `json:"id" gorm:"primaryKey"`
-	AccommodationID  uint            `json:"accommodationId"`
-	RoomName         string          `json:"roomName"`
-	Type             uint            `json:"type"`
-	NumBed           int             `json:"numBed"`
-	NumTolet         int             `json:"numTolet"`
-	Acreage          int             `json:"acreage"`
-	Price            int             `json:"price"`
-	Description      string          `json:"description"`
-	ShortDescription string          `json:"shortDescription"`
-	CreatedAt        time.Time       `gorm:"autoCreateTime" json:"createdAt"`
-	UpdatedAt        time.Time       `gorm:"autoUpdateTime" json:"updatedAt"`
-	Status           int             `json:"status" gorm:"default:0"` //0: trống 1:đã dặt 2:checkin 3:checkout 4:Bảo trì
-	Avatar           string          `json:"avatar"`
-	Img              json.RawMessage `json:"img" gorm:"type:json"`
-	Num              int             `json:"num"`
-	Furniture        json.RawMessage `json:"furniture" gorm:"type:json"`
-	People           int             `json:"people"`
-	Parent           Accommodation   `json:"parent" gorm:"foreignKey:AccommodationID"`
-	RoomStatuses     []RoomStatus    `gorm:"foreignKey:RoomID"`
+	RoomId          uint            `json:"id" gorm:"primaryKey"`
+	AccommodationID uint            `json:"accommodationId"`
+	RoomName        string          `json:"roomName"`
+	Type            uint            `json:"type"`
+	NumBed          int             `json:"numBed"`
+	NumTolet        int             `json:"numTolet"`
+	Acreage         int             `json:"acreage"`
+	Price           int             `json:"price"`
+	Description     string          `json:"description"`
+	CreatedAt       time.Time       `gorm:"autoCreateTime" json:"createdAt"`
+	UpdatedAt       time.Time       `gorm:"autoUpdateTime" json:"updatedAt"`
+	Status          int             `json:"status" gorm:"default:0"` //0: trống 1:đã dặt 2:checkin 3:checkout 4:Bảo trì
+	Avatar          string          `json:"avatar"`
+	Img             json.RawMessage `json:"img" gorm:"type:json"`
+	Num             int             `json:"num"`
+	Furniture       json.RawMessage `json:"furniture" gorm:"type:json"`
+	People          int             `json:"people"`
+	Parent          Accommodation   `json:"parent" gorm:"foreignKey:AccommodationID"`
+	RoomStatuses    []RoomStatus    `gorm:"foreignKey:RoomID"`
 }
 
 func (r *Room) ValidateStatus() error {

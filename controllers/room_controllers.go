@@ -20,25 +20,22 @@ import (
 )
 
 type Request struct {
-	RoomId           uint            `json:"id"`
-	RoomName         string          `json:"roomName"`
-	Type             uint            `json:"type"`
-	NumBed           int             `json:"numBed"`
-	NumTolet         int             `json:"numTolet"`
-	Acreage          int             `json:"acreage"`
-	Price            int             `json:"price"`
-	DaysPrice        json.RawMessage `json:"daysPrice"`
-	HolidayPrice     json.RawMessage `json:"holidayPrice"`
-	Description      string          `json:"description"`
-	ShortDescription string          `json:"shortDescription"`
-	TimeCheckOut     string          `json:"timeCheckOut"`
-	TimeCheckIn      string          `json:"timeCheckIn"`
-	Status           int             `json:"status"`
-	Avatar           string          `json:"avatar"`
-	Img              json.RawMessage `json:"img"`
-	Num              int             `json:"num"`
-	Furniture        json.RawMessage `json:"furniture" gorm:"type:json"`
-	People           int             `json:"people"`
+	RoomId       uint            `json:"id"`
+	RoomName     string          `json:"roomName"`
+	Type         uint            `json:"type"`
+	NumBed       int             `json:"numBed"`
+	NumTolet     int             `json:"numTolet"`
+	Acreage      int             `json:"acreage"`
+	Price        int             `json:"price"`
+	DaysPrice    json.RawMessage `json:"daysPrice"`
+	HolidayPrice json.RawMessage `json:"holidayPrice"`
+	Description  string          `json:"description"`
+	Status       int             `json:"status"`
+	Avatar       string          `json:"avatar"`
+	Img          json.RawMessage `json:"img"`
+	Num          int             `json:"num"`
+	Furniture    json.RawMessage `json:"furniture" gorm:"type:json"`
+	People       int             `json:"people"`
 }
 
 type DayPrice struct {
@@ -47,20 +44,19 @@ type DayPrice struct {
 }
 
 type RoomResponse struct {
-	RoomId           uint      `json:"id"`
-	RoomName         string    `json:"roomName"`
-	Type             uint      `json:"type"`
-	NumBed           int       `json:"numBed"`
-	NumTolet         int       `json:"numTolet"`
-	Acreage          int       `json:"acreage"`
-	Price            int       `json:"price"`
-	ShortDescription string    `json:"shortDescription"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
-	Status           int       `json:"status"`
-	Avatar           string    `json:"avatar"`
-	People           int       `json:"people"`
-	Parents          Parents   `json:"parents"`
+	RoomId    uint      `json:"id"`
+	RoomName  string    `json:"roomName"`
+	Type      uint      `json:"type"`
+	NumBed    int       `json:"numBed"`
+	NumTolet  int       `json:"numTolet"`
+	Acreage   int       `json:"acreage"`
+	Price     int       `json:"price"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Status    int       `json:"status"`
+	Avatar    string    `json:"avatar"`
+	People    int       `json:"people"`
+	Parents   Parents   `json:"parents"`
 }
 
 type Parents struct {
@@ -69,28 +65,23 @@ type Parents struct {
 }
 
 type RoomDetail struct {
-	RoomId           uint            `json:"id" gorm:"primaryKey"`
-	RoomName         string          `json:"roomName"`
-	Type             uint            `json:"type"`
-	NumBed           int             `json:"numBed"`
-	NumTolet         int             `json:"numTolet"`
-	Acreage          int             `json:"acreage"`
-	Price            int             `json:"price"`
-	DaysPrice        json.RawMessage `json:"daysPrice" gorm:"type:json"`
-	HolidayPrice     json.RawMessage `json:"holidayPrice" gorm:"type:json"`
-	Description      string          `json:"description"`
-	ShortDescription string          `json:"shortDescription"`
-	CreatedAt        time.Time       `json:"createdAt"`
-	UpdatedAt        time.Time       `json:"updatedAt"`
-	TimeCheckOut     string          `json:"timeCheckOut"`
-	TimeCheckIn      string          `json:"timeCheckIn"`
-	Status           int             `json:"status"`
-	Avatar           string          `json:"avatar"`
-	Img              json.RawMessage `json:"img" gorm:"type:json"`
-	Num              int             `json:"num"`
-	Furniture        json.RawMessage `json:"furniture" gorm:"type:json"`
-	People           int             `json:"people"`
-	Parent           Parents         `json:"parent"`
+	RoomId      uint            `json:"id" gorm:"primaryKey"`
+	RoomName    string          `json:"roomName"`
+	Type        uint            `json:"type"`
+	NumBed      int             `json:"numBed"`
+	NumTolet    int             `json:"numTolet"`
+	Acreage     int             `json:"acreage"`
+	Price       int             `json:"price"`
+	Description string          `json:"description"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	UpdatedAt   time.Time       `json:"updatedAt"`
+	Status      int             `json:"status"`
+	Avatar      string          `json:"avatar"`
+	Img         json.RawMessage `json:"img" gorm:"type:json"`
+	Num         int             `json:"num"`
+	Furniture   json.RawMessage `json:"furniture" gorm:"type:json"`
+	People      int             `json:"people"`
+	Parent      Parents         `json:"parent"`
 }
 
 var CacheKey2 = "accommodations:all"
@@ -260,23 +251,23 @@ func GetAllRooms(c *gin.Context) {
 		var roomDetails []RoomDetail
 		for _, room := range allRooms {
 			roomDetails = append(roomDetails, RoomDetail{
-				RoomId:           room.RoomId,
-				RoomName:         room.RoomName,
-				Type:             room.Type,
-				NumBed:           room.NumBed,
-				NumTolet:         room.NumTolet,
-				Acreage:          room.Acreage,
-				Price:            room.Price,
-				Description:      room.Description,
-				ShortDescription: room.ShortDescription,
-				CreatedAt:        room.CreatedAt,
-				UpdatedAt:        room.UpdatedAt,
-				Status:           room.Status,
-				Avatar:           room.Avatar,
-				Img:              room.Img,
-				Num:              room.Num,
-				Furniture:        room.Furniture,
-				People:           room.People,
+				RoomId:      room.RoomId,
+				RoomName:    room.RoomName,
+				Type:        room.Type,
+				NumBed:      room.NumBed,
+				NumTolet:    room.NumTolet,
+				Acreage:     room.Acreage,
+				Price:       room.Price,
+				Description: room.Description,
+
+				CreatedAt: room.CreatedAt,
+				UpdatedAt: room.UpdatedAt,
+				Status:    room.Status,
+				Avatar:    room.Avatar,
+				Img:       room.Img,
+				Num:       room.Num,
+				Furniture: room.Furniture,
+				People:    room.People,
 				Parent: Parents{
 					Id:   room.Parent.ID,
 					Name: room.Parent.Name,
@@ -356,19 +347,18 @@ func GetAllRooms(c *gin.Context) {
 	roomResponses := make([]RoomResponse, 0)
 	for _, room := range filteredRooms {
 		roomResponses = append(roomResponses, RoomResponse{
-			RoomId:           room.RoomId,
-			RoomName:         room.RoomName,
-			Type:             room.Type,
-			NumBed:           room.NumBed,
-			NumTolet:         room.NumTolet,
-			Acreage:          room.Acreage,
-			Price:            room.Price,
-			ShortDescription: room.ShortDescription,
-			CreatedAt:        room.CreatedAt,
-			UpdatedAt:        room.UpdatedAt,
-			Status:           room.Status,
-			Avatar:           room.Avatar,
-			People:           room.People,
+			RoomId:    room.RoomId,
+			RoomName:  room.RoomName,
+			Type:      room.Type,
+			NumBed:    room.NumBed,
+			NumTolet:  room.NumTolet,
+			Acreage:   room.Acreage,
+			Price:     room.Price,
+			CreatedAt: room.CreatedAt,
+			UpdatedAt: room.UpdatedAt,
+			Status:    room.Status,
+			Avatar:    room.Avatar,
+			People:    room.People,
 			Parents: Parents{
 				Id:   room.Parent.ID,
 				Name: room.Parent.Name,
@@ -463,19 +453,19 @@ func GetAllRoomsUser(c *gin.Context) {
 		var allRoomsDetails []RoomDetail
 		for _, room := range allRooms {
 			roomDetail := RoomDetail{
-				RoomId:           room.RoomId,
-				RoomName:         room.RoomName,
-				Type:             room.Type,
-				NumBed:           room.NumBed,
-				NumTolet:         room.NumTolet,
-				Acreage:          room.Acreage,
-				Price:            room.Price,
-				ShortDescription: room.ShortDescription,
-				CreatedAt:        room.CreatedAt,
-				UpdatedAt:        room.UpdatedAt,
-				Status:           room.Status,
-				Avatar:           room.Avatar,
-				People:           room.People,
+				RoomId:   room.RoomId,
+				RoomName: room.RoomName,
+				Type:     room.Type,
+				NumBed:   room.NumBed,
+				NumTolet: room.NumTolet,
+				Acreage:  room.Acreage,
+				Price:    room.Price,
+
+				CreatedAt: room.CreatedAt,
+				UpdatedAt: room.UpdatedAt,
+				Status:    room.Status,
+				Avatar:    room.Avatar,
+				People:    room.People,
 				Parent: Parents{
 					Id:   room.Parent.ID,
 					Name: room.Parent.Name,
@@ -577,19 +567,18 @@ func GetAllRoomsUser(c *gin.Context) {
 	roomResponses := make([]RoomResponse, 0)
 	for _, room := range paginatedRooms {
 		roomResponses = append(roomResponses, RoomResponse{
-			RoomId:           room.RoomId,
-			RoomName:         room.RoomName,
-			Type:             room.Type,
-			NumBed:           room.NumBed,
-			NumTolet:         room.NumTolet,
-			Acreage:          room.Acreage,
-			Price:            room.Price,
-			ShortDescription: room.ShortDescription,
-			CreatedAt:        room.CreatedAt,
-			UpdatedAt:        room.UpdatedAt,
-			Status:           room.Status,
-			Avatar:           room.Avatar,
-			People:           room.People,
+			RoomId:    room.RoomId,
+			RoomName:  room.RoomName,
+			Type:      room.Type,
+			NumBed:    room.NumBed,
+			NumTolet:  room.NumTolet,
+			Acreage:   room.Acreage,
+			Price:     room.Price,
+			CreatedAt: room.CreatedAt,
+			UpdatedAt: room.UpdatedAt,
+			Status:    room.Status,
+			Avatar:    room.Avatar,
+			People:    room.People,
 			Parents: Parents{
 				Id:   room.Parent.ID,
 				Name: room.Parent.Name,
@@ -816,10 +805,6 @@ func UpdateRoom(c *gin.Context) {
 		room.Description = request.Description
 	}
 
-	if request.ShortDescription != "" {
-		room.ShortDescription = request.ShortDescription
-	}
-
 	if request.Status != 0 {
 		room.Status = request.Status
 	}
@@ -949,23 +934,22 @@ func ChangeRoomStatus(c *gin.Context) {
 // Hàm set response cho details
 func buildRoomDetailResponse(room models.Room) RoomDetail {
 	return RoomDetail{
-		RoomId:           room.RoomId,
-		RoomName:         room.RoomName,
-		Type:             room.Type,
-		NumBed:           room.NumBed,
-		NumTolet:         room.NumTolet,
-		Acreage:          room.Acreage,
-		Price:            room.Price,
-		Description:      room.Description,
-		ShortDescription: room.ShortDescription,
-		CreatedAt:        room.CreatedAt,
-		UpdatedAt:        room.UpdatedAt,
-		Status:           room.Status,
-		Avatar:           room.Avatar,
-		Img:              room.Img,
-		Num:              room.Num,
-		Furniture:        room.Furniture,
-		People:           room.People,
+		RoomId:      room.RoomId,
+		RoomName:    room.RoomName,
+		Type:        room.Type,
+		NumBed:      room.NumBed,
+		NumTolet:    room.NumTolet,
+		Acreage:     room.Acreage,
+		Price:       room.Price,
+		Description: room.Description,
+		CreatedAt:   room.CreatedAt,
+		UpdatedAt:   room.UpdatedAt,
+		Status:      room.Status,
+		Avatar:      room.Avatar,
+		Img:         room.Img,
+		Num:         room.Num,
+		Furniture:   room.Furniture,
+		People:      room.People,
 		Parent: Parents{
 			Id:   room.Parent.ID,
 			Name: room.Parent.Name,
