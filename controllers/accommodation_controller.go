@@ -351,7 +351,7 @@ func GetAllAccommodations(c *gin.Context) {
 		}
 		if provinceFilter != "" {
 			decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
-			if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedProvinceFilter)) {
+			if !strings.Contains(strings.ToLower(acc.Province), strings.ToLower(decodedProvinceFilter)) {
 				continue
 			}
 		}
@@ -865,17 +865,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		if provinceFilter != "" {
-			decodedProvinceFilter, err := url.QueryUnescape(provinceFilter)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu province không hợp lệ"})
-				return
-			}
-
-			// Tìm kiếm chuỗi gần đúng
-			closest := cmProvince.Closest(normalizeInput(decodedProvinceFilter))
-
-			// So sánh nếu chuỗi gần đúng khớp với province của accommodation
-			if normalizeInput(acc.Province) != closest {
+			decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
+			if !strings.Contains(strings.ToLower(acc.Province), strings.ToLower(decodedProvinceFilter)) {
 				continue
 			}
 		}
