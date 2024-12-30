@@ -151,7 +151,7 @@ func VerifyEmail(c *gin.Context) {
 	var user models.User
 	result := config.DB.Where("code = ?", code).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": result.Error.Error()})
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Có lỗi xảy ra khi xác minh email", "detai": result.Error.Error()})
 		return
 	}
 
