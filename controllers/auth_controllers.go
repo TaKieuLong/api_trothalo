@@ -144,20 +144,20 @@ func Logout(c *gin.Context) {
 func VerifyEmail(c *gin.Context) {
 	code := c.Query("token")
 	if code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Cần mã xác thực"})
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Cần mã xác thực"})
 		return
 	}
 
 	var user models.User
 	result := config.DB.Where("code = ?", code).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": result.Error.Error()})
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": result.Error.Error()})
 		return
 	}
 
 	// Kiểm tra xem mã xác thực đã hết hạn chưa (5 phút)
 	if time.Since(user.CodeCreatedAt) > 5*time.Minute {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới."})
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới."})
 		return
 	}
 
