@@ -1179,7 +1179,7 @@ func GetAccommodationDetail(c *gin.Context) {
 	// Kết nối Redis
 	rdb, redisErr := config.ConnectRedis()
 	if redisErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		c.JSON(http.StatusTemporaryRedirect, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
 		return
 	}
 
