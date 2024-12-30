@@ -62,7 +62,7 @@ func sendVerificationEmail(email string, token string) error {
 			<p>Nếu không yêu cầu mã này thì bạn có thể bỏ qua email này một cách an toàn. Có thể ai đó khác đã nhập địa chỉ email của bạn do nhầm lẫn.</p>
 			<p>Bạn có thể bấm vào nút sau để xác nhận tài khoản</p>
 			<p>
-				<a href="http://localhost:3001/verify-email?token=%s" style="display: inline-block; padding: 10px 20px; background-color: #1a73e8; color: white; text-decoration: none; border-radius: 5px;">
+				<a href="https://trothalo.click/verify-email?token=%s" style="display: inline-block; padding: 10px 20px; background-color: #1a73e8; color: white; text-decoration: none; border-radius: 5px;">
 					Xác nhận email
 				</a>
 			</p>
@@ -381,51 +381,6 @@ func NewPass(user models.User, newPassword string) error {
 	}
 
 	return nil
-}
-
-func LoginCode(user models.User) error {
-
-	if user.Role == 1 || user.Role == 2 || user.Role == 3 {
-		if !user.IsVerified {
-			newCode, err := generateVerificationCode()
-			if err != nil {
-				return fmt.Errorf("không thể tạo mã xác minh: %v", err)
-			}
-			user.Code = newCode
-			user.CodeCreatedAt = time.Now()
-
-			if err := config.DB.Save(&user).Error; err != nil {
-				return fmt.Errorf("không thể cập nhật mã xác minh: %v", err)
-			}
-
-			err = sendVerificationEmail(user.Email, newCode)
-			if err != nil {
-				return fmt.Errorf("không thể gửi email xác minh: %v", err)
-			}
-
-			return fmt.Errorf("Bạn cần xác nhận email để Đăng nhập")
-		}
-
-		newCode, err := generateVerificationCode()
-		if err != nil {
-			return fmt.Errorf("không thể tạo mã xác minh: %v", err)
-		}
-		user.Code = newCode
-		user.CodeCreatedAt = time.Now()
-
-		if err := config.DB.Save(&user).Error; err != nil {
-			return fmt.Errorf("không thể cập nhật mã xác minh: %v", err)
-		}
-
-		err = sendcodeEmail(user.Email, newCode)
-		if err != nil {
-			return fmt.Errorf("không thể gửi email xác minh: %v", err)
-		}
-
-		return nil
-	}
-
-	return fmt.Errorf("Vai trò không hợp lệ")
 }
 
 func UpdateAccommodationRating(accommodationId uint) error {

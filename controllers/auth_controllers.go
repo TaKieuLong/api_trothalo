@@ -85,22 +85,9 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if user.Role == 0 {
-		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Email hoặc mật khẩu không hợp lệ"})
-			return
-		}
-	} else {
-
-		if err := services.LoginCode(user); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 2, "mess": err.Error()})
-			return
-		}
-
-		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Email hoặc mật khẩu không hợp lệ"})
-			return
-		}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Email hoặc mật khẩu không hợp lệ"})
+		return
 	}
 
 	userInfo := services.UserInfo{
