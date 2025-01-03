@@ -293,22 +293,67 @@ func GetOrders(c *gin.Context) {
 }
 
 func CreateOrder(c *gin.Context) {
+
 	authHeader := c.GetHeader("Authorization")
 
+	var request CreateOrderRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
 	var currentUserID uint
+	var userId *uint
+	var actor Actor
+
 	if authHeader != "" {
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		userID, _, err := GetUserIDFromToken(tokenString)
 
 		if err == nil {
 			currentUserID = userID
+		} else {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+			return
 		}
-	}
+	} else {
+		if request.UserID != 0 {
+			currentUserID = request.UserID
+			var userInfo models.User
+			if err := config.DB.Where("id = ?", request.UserID).First(&userInfo).Error; err == nil {
+				userId = new(uint)
+				*userId = userInfo.ID
 
-	var request CreateOrderRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
-		return
+				actor = Actor{
+					Name:        userInfo.Name,
+					Email:       userInfo.Email,
+					PhoneNumber: userInfo.PhoneNumber,
+				}
+			} else {
+				c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy người dùng"})
+				return
+			}
+		} else {
+			var userInfo models.User
+			if err := config.DB.Where("phone_number = ?", request.GuestPhone).First(&userInfo).Error; err == nil {
+
+				userId = new(uint)
+				*userId = userInfo.ID
+
+				actor = Actor{
+					Name:        userInfo.Name,
+					Email:       userInfo.Email,
+					PhoneNumber: userInfo.PhoneNumber,
+				}
+			} else {
+				userId = nil
+				actor = Actor{
+					Name:        request.GuestName,
+					Email:       request.GuestEmail,
+					PhoneNumber: request.GuestPhone,
+				}
+			}
+		}
 	}
 
 	checkInDate, err := time.Parse("02/01/2006", request.CheckInDate)
@@ -326,30 +371,6 @@ func CreateOrder(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng không hợp lệ"})
 		return
-	}
-
-	var userInfo models.User
-	var userId *uint
-	var actor Actor
-
-	if err := config.DB.Where("phone_number = ?", request.GuestPhone).First(&userInfo).Error; err == nil {
-		// Nếu tìm thấy người dùng, lấy ID và tạo Actor từ thông tin người dùng
-		userId = new(uint)
-		*userId = userInfo.ID
-
-		actor = Actor{
-			Name:        userInfo.Name,
-			Email:       userInfo.Email,
-			PhoneNumber: userInfo.PhoneNumber,
-		}
-	} else {
-		// Nếu không tìm thấy người dùng, tạo Actor từ guest information
-		userId = nil
-		actor = Actor{
-			Name:        request.GuestName,
-			Email:       request.GuestEmail,
-			PhoneNumber: request.GuestPhone,
-		}
 	}
 
 	order := models.Order{
@@ -569,6 +590,12 @@ func CreateOrder(c *gin.Context) {
 		SoldOutPrice:     order.SoldOutPrice,
 		DiscountPrice:    order.DiscountPrice,
 		TotalPrice:       order.TotalPrice,
+	}
+
+	if orderResponse.User.Email != "" {
+		if err := services.SendOrderEmail(orderResponse.User.Email, order.ID, order.TotalPrice, order.CheckInDate, order.CheckOutDate); err != nil {
+			fmt.Println("Gửi email không thành công:", err)
+		}
 	}
 
 	//Xóa redis
