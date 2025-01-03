@@ -753,6 +753,13 @@ func GetOrdersByUserId(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
 		return
 	}
+
+	var user models.User
+	if err := config.DB.First(&user, currentUserID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "User not found"})
+		return
+	}
+
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 	page := 0
@@ -767,6 +774,20 @@ func GetOrdersByUserId(c *gin.Context) {
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			limit = parsedLimit
+		}
+	}
+
+	var ordersToUpdate []models.Order
+	if err := config.DB.Where("guest_phone = ?", user.PhoneNumber).Find(&ordersToUpdate).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error finding guest orders"})
+		return
+	}
+
+	for _, order := range ordersToUpdate {
+		order.UserID = &currentUserID
+		if err := config.DB.Save(&order).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error updating guest orders"})
+			return
 		}
 	}
 
