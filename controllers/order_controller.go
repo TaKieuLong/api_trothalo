@@ -646,10 +646,10 @@ func ChangeOrderStatus(c *gin.Context) {
 		return
 	}
 
-	//Kiểm tra nếu người dùng (userRol == 0) đặt đơn chưa quá 24h thì cho Hủy đơn
+	timeSinceCreation := time.Since(order.CreatedAt).Hours()
+
 	if currentUserRole == 0 && req.Status == 2 {
-		timeSinceCreation := time.Since(order.CreatedAt)
-		if timeSinceCreation.Hours() > 24 {
+		if timeSinceCreation > 24 {
 			c.JSON(http.StatusAccepted, gin.H{"code": 0, "mess": "Liên hệ Admin để được hủy đơn"})
 			return
 		}
