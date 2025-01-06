@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"log"
 	"net/http"
 	"net/url"
 	"new/config"
@@ -35,29 +34,13 @@ type CreateHolidayRequest struct {
 
 // GetHolidays lấy tất cả kỳ nghỉ
 func GetHolidays(c *gin.Context) {
-	cacheKey := "holidays:all"
-
-	// Kết nối Redis
-	rdb, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis", "error": err.Error()})
-		return
-	}
-
 	var holidays []models.Holiday
-	err = services.GetFromRedis(config.Ctx, rdb, cacheKey, &holidays)
-	if err == nil && len(holidays) > 0 {
 
-		c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy danh sách kỳ nghỉ thành công từ cache", "data": holidays})
-		return
-	}
 	if err := config.DB.Find(&holidays).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách kỳ nghỉ"})
 		return
 	}
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, holidays, 10*time.Minute); err != nil {
-		log.Printf("Lỗi khi lưu danh sách kỳ nghỉ vào Redis: %v", err)
-	}
+
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 	nameFilter := c.Query("name")
