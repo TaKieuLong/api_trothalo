@@ -14,9 +14,3 @@ DEV_DB_PASSWORD=g6VJHCsMLag2JOyGqNeFEnL5se9oMukO
 DEV_DB_NAME=test01_ge7w
 
 MAPBOX_KEY=pk.eyJ1IjoidGFraWV1bG9uZyIsImEiOiJjbTNyYXR0Y3IwM2xjMmpzY2tsdXB1bDg1In0.N2Rp_nzqe3bZKvE6gQL-tw
-
-DEV_DB_HOST=database-2.cbey2y0m4fi0.ap-southeast-1.rds.amazonaws.com
-DEV_DB_PORT=5432
-DEV_DB_USER=postgres
-DEV_DB_PASSWORD=Trongheo2013
-DEV_DB_NAME=test01
