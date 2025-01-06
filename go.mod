@@ -16,6 +16,7 @@ require (
 	golang.org/x/crypto v0.28.0
 	google.golang.org/api v0.200.0
 	gorm.io/driver/postgres v1.5.9
+	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
 )
 
@@ -29,6 +30,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect
 	go.opentelemetry.io/otel v1.29.0 // indirect

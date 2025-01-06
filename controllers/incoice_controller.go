@@ -220,22 +220,6 @@ func GetTotalRevenue(c *gin.Context) {
 		return
 	}
 
-	redisClient, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to connect to Redis"})
-		return
-	}
-
-	cacheKey := "total_revenue"
-	cachedData, err := redisClient.Get(config.Ctx, cacheKey).Result()
-	if err == nil && cachedData != "" {
-		var cachedResponse RevenueResponse
-		if json.Unmarshal([]byte(cachedData), &cachedResponse) == nil {
-			c.JSON(http.StatusOK, cachedResponse)
-			return
-		}
-	}
-
 	tx := config.DB.Model(&models.Invoice{})
 	if currentUserRole == 2 {
 		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
@@ -315,19 +299,6 @@ func GetTotalRevenue(c *gin.Context) {
 		LastMonthRevenue:    lastMonthRevenue.Float64,
 		CurrentWeekRevenue:  currentWeekRevenue,
 		MonthlyRevenue:      monthlyRevenue,
-	}
-
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error processing data"})
-		return
-	}
-
-	ttl := 10 * time.Minute
-	err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to save cache"})
-		return
 	}
 
 	c.JSON(http.StatusOK, response)

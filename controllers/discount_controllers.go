@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"log"
 	"net/http"
 	"net/url"
 	"new/config"
@@ -60,18 +59,8 @@ func ConvertDateToComparableFormat(dateStr string) (string, error) {
 	return parsedDate.Format("20060102"), nil
 }
 func GetDiscounts(c *gin.Context) {
-	cacheKey := "discounts:all"
-	rdb, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis", "error": err.Error()})
-		return
-	}
+
 	var discounts []models.Discount
-	err = services.GetFromRedis(config.Ctx, rdb, cacheKey, &discounts)
-	if err == nil && len(discounts) > 0 {
-		c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy danh sách giảm giá thành công từ cache", "data": discounts})
-		return
-	}
 
 	currentDate := time.Now()
 
@@ -96,10 +85,7 @@ func GetDiscounts(c *gin.Context) {
 			}
 		}
 	}
-	// Lưu vào Redis
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, discounts, 10*time.Minute); err != nil {
-		log.Printf("Lỗi khi lưu danh sách giảm giá vào Redis: %v", err)
-	}
+
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
 	statusFilter := c.Query("status")
@@ -253,12 +239,6 @@ func CreateDiscount(c *gin.Context) {
 		return
 	}
 
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		cacheKey := "benefits:all"
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-	}
 	c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo chương trình giảm giá thành công", "data": discount})
 }
 
