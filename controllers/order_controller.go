@@ -804,17 +804,24 @@ func GetOrdersByUserId(c *gin.Context) {
 		}
 	}
 
+	if user.PhoneNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "User phone number is missing"})
+		return
+	}
+
 	var ordersToUpdate []models.Order
-	if err := config.DB.Where("guest_phone = ?", user.PhoneNumber).Find(&ordersToUpdate).Error; err != nil {
+	if err := config.DB.Where("guest_phone = ? AND user_id IS NULL", user.PhoneNumber).Find(&ordersToUpdate).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error finding guest orders"})
 		return
 	}
 
 	for _, order := range ordersToUpdate {
-		order.UserID = &currentUserID
-		if err := config.DB.Save(&order).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error updating guest orders"})
-			return
+		if order.GuestPhone == user.PhoneNumber {
+			order.UserID = &currentUserID
+			if err := config.DB.Save(&order).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error updating guest orders"})
+				return
+			}
 		}
 	}
 
