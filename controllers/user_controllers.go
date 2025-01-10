@@ -160,6 +160,11 @@ func (u UserController) GetUsers(c *gin.Context) {
 	// Lọc và chuẩn bị response
 	var userResponses []UserResponse
 	for _, user := range allUsers {
+
+		if currentUserRole == 1 && user.Role == 3 {
+			continue
+		}
+
 		if user.ID == uint(currentUserID) {
 			continue
 		}
