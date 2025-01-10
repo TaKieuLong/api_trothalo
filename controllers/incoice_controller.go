@@ -464,23 +464,6 @@ func GetTotal(c *gin.Context) {
 		limit = 10
 	}
 
-	redisClient, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to connect to Redis"})
-		return
-	}
-
-	cacheKey := fmt.Sprintf("invoices:all:page=%d:limit=%d", page, limit)
-
-	cachedData, err := redisClient.Get(config.Ctx, cacheKey).Result()
-	if err == nil && cachedData != "" {
-		var cachedResponse gin.H
-		if json.Unmarshal([]byte(cachedData), &cachedResponse) == nil {
-			c.JSON(http.StatusOK, cachedResponse)
-			return
-		}
-	}
-
 	tx := config.DB.Model(&models.Invoice{})
 
 	if err := tx.Count(&totalInvoices).Error; err != nil {
@@ -520,20 +503,6 @@ func GetTotal(c *gin.Context) {
 			"limit": limit,
 			"total": totalInvoices,
 		},
-	}
-
-	jsonData, err := json.Marshal(responseData)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error processing data"})
-		return
-	}
-
-	ttl := 10 * time.Minute
-
-	err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to save cache"})
-		return
 	}
 
 	c.JSON(http.StatusOK, responseData)
