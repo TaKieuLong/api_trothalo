@@ -44,6 +44,7 @@ type ToTalResponse struct {
 	CurrentWeekRevenue   float64             `json:"currentWeekRevenue"`
 	VAT                  float64             `json:"vat"`
 	ActualMonthlyRevenue float64             `json:"actualMonthlyRevenue"`
+	VatLastMonth         float64             `json:"vatLastMonth"`
 }
 
 func GetInvoices(c *gin.Context) {
@@ -467,47 +468,54 @@ func GetTotal(c *gin.Context) {
 		return
 	}
 
-	calculateRevenue := func(userID uint) (float64, float64, float64, float64, float64, float64, error) {
+	calculateRevenue := func(userID uint) (float64, float64, float64, float64, float64, float64, float64, error) {
 		var totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue float64
 
+		// Tổng doanh thu
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ?", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
 			Scan(&totalAmount).Error; err != nil {
-			return 0, 0, 0, 0, 0, 0, nil
+			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
+		// Doanh thu tháng hiện tại
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
 			Scan(&currentMonthRevenue).Error; err != nil {
-			return 0, 0, 0, 0, 0, 0, nil
+			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
+		// Doanh thu tháng trước
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 MONTH') AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
 			Scan(&lastMonthRevenue).Error; err != nil {
-			return 0, 0, 0, 0, 0, 0, nil
+			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
+		// Doanh thu tuần hiện tại
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ? AND EXTRACT(WEEK FROM created_at) = EXTRACT(WEEK FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
 			Scan(&currentWeekRevenue).Error; err != nil {
-			return 0, 0, 0, 0, 0, 0, nil
+			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
-		vat := totalAmount * 0.3
+		// Tính VAT (30% của doanh thu tháng hiện tại và tháng trước)
+		vat := currentMonthRevenue * 0.3
+		vatLastMonth := lastMonthRevenue * 0.3
 
+		// Tính doanh thu thực tế hàng tháng (doanh thu tháng hiện tại trừ VAT)
 		actualMonthlyRevenue := currentMonthRevenue - vat
 
-		return totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, actualMonthlyRevenue, nil
+		return totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, vatLastMonth, actualMonthlyRevenue, nil
 	}
 
 	var totalResponses []ToTalResponse
 	for _, user := range users {
-		totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, actualMonthlyRevenue, err := calculateRevenue(user.ID)
+		totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, vatLastMonth, actualMonthlyRevenue, err := calculateRevenue(user.ID)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": fmt.Sprintf("Không thể tính doanh thu cho người dùng %d", user.ID)})
@@ -525,6 +533,7 @@ func GetTotal(c *gin.Context) {
 			LastMonthRevenue:     lastMonthRevenue,
 			CurrentWeekRevenue:   currentWeekRevenue,
 			VAT:                  vat,
+			VatLastMonth:         vatLastMonth,
 			ActualMonthlyRevenue: actualMonthlyRevenue,
 		})
 	}
