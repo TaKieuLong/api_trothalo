@@ -578,9 +578,9 @@ func SendPay(c *gin.Context) {
 	}
 
 	var request struct {
-		Email        string  `json:"email" binding:"required"`
-		Vat          float64 `json:"vat" binding:"required"`
-		VatLastMonth float64 `json:"vatLastMonth" binding:"required"`
+		Email        string `json:"email" binding:"required"`
+		Vat          int    `json:"vat" binding:"required"`
+		VatLastMonth int    `json:"vatLastMonth" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -594,37 +594,11 @@ func SendPay(c *gin.Context) {
 	totalVat := vat + vatLastMonth
 
 	qrCodeURL := fmt.Sprintf(
-		"https://img.vietqr.io/image/SACOMBANK-060915374450-compact.jpg?amount=%.2f&addInfo=Chuyen%%20khoan%%20phi%%20",
+		"https://img.vietqr.io/image/SACOMBANK-060915374450-compact.jpg?amount=%d&addInfo=Chuyen%%20khoan%%20phi%%20",
 		totalVat,
 	)
 
-	emailContent := fmt.Sprintf(`
-	<!DOCTYPE html>
-	<html>
-	<head>
-		<meta charset="UTF-8">
-		<title>Thông báo nhắc đóng phí</title>
-	</head>
-	<body>
-		<p>Xin chào bạn,</p>
-		<p>Đây là thông báo nhắc nhở bạn hoàn thành việc đóng phí đúng hẹn.</p>
-		<p><strong>Thông tin doanh thu của bạn:</strong></p>
-		<ul>
-			<li>VAT hiện tại: <strong>%.2f</strong></li>
-			<li>VAT tháng trước: <strong>%.2f</strong></li>
-			<li><strong>Tổng số thanh toán:</strong> <span style="color: red;">%.2f</span></li>
-		</ul>
-		<p>Bạn vui lòng quét mã QR bên dưới để hoàn tất thanh toán:</p>
-		<p>
-			<img alt="QR Code for Payment" src="%s" width="400">
-		</p>
-		<p>Chúng tôi rất cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
-		<p>Trân trọng,<br>Nhóm hỗ trợ</p>
-	</body>
-	</html>
-`, vat, vatLastMonth, totalVat, qrCodeURL)
-
-	if err := services.SendPayEmail(email, emailContent); err != nil {
+	if err := services.SendPayEmail(email, vat, vatLastMonth, totalVat, qrCodeURL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể gửi email", "error": err.Error()})
 		return
 	}

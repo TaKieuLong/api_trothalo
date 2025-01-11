@@ -548,16 +548,48 @@ func CheckUserEligibilityForDiscount(userID uint) bool {
 	return true
 }
 
-func SendPayEmail(email string, emailContent string) error {
+func SendPayEmail(email string, vat, vatLastMonth, totalVat int, qrCodeURL string) error {
 	from := "takieulong@gmail.com"
 	password := "audj brda qhbq lpxu"
 
 	host := "smtp.gmail.com"
 	port := "587"
 	to := []string{email}
-	subject := "Subject: Thông báo phí thường niên\n"
+	subject := "Subject: Thông báo phí thường niên\r\n"
 
-	msg := []byte("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n" + subject + "\n" + emailContent)
+	emailContent := fmt.Sprintf(`
+	<!DOCTYPE html>
+	<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>Thông báo nhắc đóng phí</title>
+	</head>
+	<body>
+		<p>Xin chào bạn,</p>
+		<p>Đây là thông báo nhắc nhở bạn hoàn thành việc đóng phí đúng hẹn.</p>
+		<p><strong>Thông tin doanh thu của bạn:</strong></p>
+		<ul>
+			<li>VAT hiện tại: <strong>%d</strong></li>
+			<li>VAT tháng trước: <strong>%d</strong></li>
+			<li><strong>Tổng số thanh toán:</strong> <span style="color: red; font-size: 20px; font-weight: bold;">%d</span></li>
+		</ul>
+		<p>Bạn vui lòng quét mã QR bên dưới để hoàn tất thanh toán:</p>
+		<p>
+			<img alt="QR Code for Payment" src="%s" width="400">
+		</p>
+		<p><strong>Thông tin tài khoản ngân hàng:</strong></p>
+		<p>Số tài khoản: SACOMBANK - 060915374450</p>
+		<p><strong>Vui lòng kiểm tra và hoàn tất thanh toán theo số tài khoản trên.</strong></p>
+		<p>Chúng tôi rất cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
+		<p>Trân trọng,<br>Nhóm hỗ trợ</p>
+	</body>
+	</html>
+	`, vat, vatLastMonth, totalVat, qrCodeURL)
+
+	msg := []byte("MIME-Version: 1.0\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n" +
+		subject + "\r\n" +
+		emailContent)
 
 	auth := smtp.PlainAuth("", from, password, host)
 
