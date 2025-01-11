@@ -641,7 +641,9 @@ func ChangeOrderStatus(c *gin.Context) {
 	}
 
 	var order models.Order
-	if err := config.DB.First(&order, req.ID).Error; err != nil {
+	if err := config.DB.
+		Preload("Accommodation.User").
+		First(&order, req.ID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Đơn hàng không tồn tại"})
 		return
 	}
@@ -687,6 +689,7 @@ func ChangeOrderStatus(c *gin.Context) {
 			TotalAmount:     order.TotalPrice,
 			PaidAmount:      req.PaidAmount,
 			RemainingAmount: Remaining,
+			AdminID:         order.Accommodation.UserID,
 		}
 
 		if err := config.DB.Create(&invoice).Error; err != nil {

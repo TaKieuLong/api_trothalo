@@ -16,17 +16,34 @@ import (
 )
 
 type InvoiceResponse struct {
-	ID              uint         `json:"id"`
-	InvoiceCode     string       `json:"invoiceCode"`
-	OrderID         uint         `json:"orderId"`
-	TotalAmount     float64      `json:"totalAmount"`
-	PaidAmount      float64      `json:"paidAmount"`
-	RemainingAmount float64      `json:"remainingAmount"`
-	Status          int          `json:"status"`
-	PaymentDate     *string      `json:"paymentDate,omitempty"`
-	CreatedAt       string       `json:"createdAt"`
-	UpdatedAt       string       `json:"updatedAt"`
-	User            UserResponse `json:"user"`
+	ID              uint                `json:"id"`
+	InvoiceCode     string              `json:"invoiceCode"`
+	OrderID         uint                `json:"orderId"`
+	TotalAmount     float64             `json:"totalAmount"`
+	PaidAmount      float64             `json:"paidAmount"`
+	RemainingAmount float64             `json:"remainingAmount"`
+	Status          int                 `json:"status"`
+	PaymentDate     *string             `json:"paymentDate,omitempty"`
+	CreatedAt       string              `json:"createdAt"`
+	UpdatedAt       string              `json:"updatedAt"`
+	User            InvoiceUserResponse `json:"user"`
+	AdminID         uint                `json:"adminId"`
+}
+
+type InvoiceUserResponse struct {
+	ID          uint   `json:"id"`
+	Email       string `json:"email"`
+	PhoneNumber string `json:"phoneNumber"`
+}
+
+type ToTalResponse struct {
+	User                 InvoiceUserResponse `json:"user"`
+	TotalAmount          float64             `json:"totalAmount"`
+	CurrentMonthRevenue  float64             `json:"currentMonthRevenue"`
+	LastMonthRevenue     float64             `json:"lastMonthRevenue"`
+	CurrentWeekRevenue   float64             `json:"currentWeekRevenue"`
+	VAT                  float64             `json:"vat"`
+	ActualMonthlyRevenue float64             `json:"actualMonthlyRevenue"`
 }
 
 func GetInvoices(c *gin.Context) {
@@ -120,6 +137,7 @@ func GetInvoices(c *gin.Context) {
 			PaymentDate:     nil,
 			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
+			AdminID:         invoice.AdminID,
 		})
 	}
 
@@ -178,10 +196,11 @@ func GetDetailInvoice(c *gin.Context) {
 		PaymentDate:     nil,
 		CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
-		User: UserResponse{
-			UserID:    user.ID,
-			UserEmail: user.Email,
-			UserPhone: user.PhoneNumber,
+		AdminID:         invoice.AdminID,
+		User: InvoiceUserResponse{
+			ID:          user.ID,
+			Email:       user.Email,
+			PhoneNumber: user.PhoneNumber,
 		},
 	}
 
@@ -195,17 +214,20 @@ type MonthRevenue struct {
 }
 
 type RevenueResponse struct {
-	TotalRevenue        float64        `json:"totalRevenue"`
-	CurrentMonthRevenue float64        `json:"currentMonthRevenue"`
-	LastMonthRevenue    float64        `json:"lastMonthRevenue"`
-	CurrentWeekRevenue  float64        `json:"currentWeekRevenue"`
-	MonthlyRevenue      []MonthRevenue `json:"monthlyRevenue"`
+	TotalRevenue         float64        `json:"totalRevenue"`
+	CurrentMonthRevenue  float64        `json:"currentMonthRevenue"`
+	LastMonthRevenue     float64        `json:"lastMonthRevenue"`
+	CurrentWeekRevenue   float64        `json:"currentWeekRevenue"`
+	MonthlyRevenue       []MonthRevenue `json:"monthlyRevenue"`
+	VAT                  float64        `json:"vat"`
+	ActualMonthlyRevenue float64        `json:"actualMonthlyRevenue"`
 }
 
 func GetTotalRevenue(c *gin.Context) {
 	var totalRevenue, currentMonthRevenue, currentWeekRevenue float64
 	var lastMonthRevenue sql.NullFloat64
 	var monthlyRevenue []MonthRevenue
+	var vat, actualMonthlyRevenue float64 // Thêm VAT và doanh thu thực tháng này
 
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -220,22 +242,18 @@ func GetTotalRevenue(c *gin.Context) {
 		return
 	}
 
+	// Chỉ xử lý cho role 1 và role 2
+	if currentUserRole != 1 && currentUserRole != 2 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+		return
+	}
+
 	tx := config.DB.Model(&models.Invoice{})
 	if currentUserRole == 2 {
 		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
 			Select("orders.id").
 			Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
 			Where("accommodations.user_id = ?", currentUserID))
-	} else if currentUserRole == 3 {
-		var user models.User
-		if err := config.DB.Where("id = ?", currentUserID).First(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tìm thấy người dùng"})
-			return
-		}
-		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
-			Select("orders.id").
-			Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
-			Where("accommodations.user_id = ?", user.AdminId))
 	}
 
 	var invoices []models.Invoice
@@ -284,6 +302,7 @@ func GetTotalRevenue(c *gin.Context) {
 	}
 
 	if currentUserRole == 1 {
+		// Tính doanh thu cho role 1
 		totalRevenue *= 0.30
 		currentMonthRevenue *= 0.30
 		lastMonthRevenue.Float64 *= 0.30
@@ -291,14 +310,21 @@ func GetTotalRevenue(c *gin.Context) {
 		for i := range monthlyRevenue {
 			monthlyRevenue[i].Revenue *= 0.30
 		}
+	} else if currentUserRole == 2 {
+		// Tính doanh thu cho role 2
+		vat = currentMonthRevenue * 30 / 100
+		actualMonthlyRevenue = currentMonthRevenue - vat
+		totalRevenue -= (totalRevenue * 30 / 100)
 	}
 
 	response := RevenueResponse{
-		TotalRevenue:        totalRevenue,
-		CurrentMonthRevenue: currentMonthRevenue,
-		LastMonthRevenue:    lastMonthRevenue.Float64,
-		CurrentWeekRevenue:  currentWeekRevenue,
-		MonthlyRevenue:      monthlyRevenue,
+		TotalRevenue:         totalRevenue,
+		CurrentMonthRevenue:  currentMonthRevenue,
+		LastMonthRevenue:     lastMonthRevenue.Float64,
+		CurrentWeekRevenue:   currentWeekRevenue,
+		MonthlyRevenue:       monthlyRevenue,
+		VAT:                  vat,
+		ActualMonthlyRevenue: actualMonthlyRevenue,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -380,6 +406,7 @@ func UpdatePaymentStatus(c *gin.Context) {
 			RemainingAmount: invoice.RemainingAmount,
 			Status:          invoice.Status,
 			PaymentDate:     nil,
+			AdminID:         invoice.AdminID,
 			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
@@ -412,5 +439,99 @@ func UpdatePaymentStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Cập nhật trạng thái thanh toán thành công",
+	})
+}
+
+func GetTotal(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		return
+	}
+
+	if currentUserRole != 1 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		return
+	}
+
+	var users []models.User
+	if err := config.DB.Where("role = ?", 2).Find(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách người dùng"})
+		return
+	}
+
+	calculateRevenue := func(userID uint) (float64, float64, float64, float64, float64, float64, error) {
+		var totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue float64
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ?", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&totalAmount).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&currentMonthRevenue).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 MONTH') AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&lastMonthRevenue).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ? AND EXTRACT(WEEK FROM created_at) = EXTRACT(WEEK FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&currentWeekRevenue).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		vat := totalAmount * 0.3
+
+		actualMonthlyRevenue := currentMonthRevenue - vat
+
+		return totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, actualMonthlyRevenue, nil
+	}
+
+	var totalResponses []ToTalResponse
+	for _, user := range users {
+		totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, actualMonthlyRevenue, err := calculateRevenue(user.ID)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": fmt.Sprintf("Không thể tính doanh thu cho người dùng %d", user.ID)})
+			return
+		}
+
+		totalResponses = append(totalResponses, ToTalResponse{
+			User: InvoiceUserResponse{
+				ID:          user.ID,
+				Email:       user.Email,
+				PhoneNumber: user.PhoneNumber,
+			},
+			TotalAmount:          totalAmount,
+			CurrentMonthRevenue:  currentMonthRevenue,
+			LastMonthRevenue:     lastMonthRevenue,
+			CurrentWeekRevenue:   currentWeekRevenue,
+			VAT:                  vat,
+			ActualMonthlyRevenue: actualMonthlyRevenue,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy doanh thu của người dùng thành công",
+		"data": totalResponses,
 	})
 }
