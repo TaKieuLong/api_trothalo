@@ -27,12 +27,23 @@ type InvoiceResponse struct {
 	CreatedAt       string              `json:"createdAt"`
 	UpdatedAt       string              `json:"updatedAt"`
 	User            InvoiceUserResponse `json:"user"`
+	AdminID         uint                `json:"adminId"`
 }
 
 type InvoiceUserResponse struct {
 	ID          uint   `json:"id"`
 	Email       string `json:"email"`
 	PhoneNumber string `json:"phoneNumber"`
+}
+
+type ToTalResponse struct {
+	User                 InvoiceUserResponse `json:"user"`
+	TotalAmount          float64             `json:"totalAmount"`
+	CurrentMonthRevenue  float64             `json:"currentMonthRevenue"`
+	LastMonthRevenue     float64             `json:"lastMonthRevenue"`
+	CurrentWeekRevenue   float64             `json:"currentWeekRevenue"`
+	VAT                  float64             `json:"vat"`
+	ActualMonthlyRevenue float64             `json:"actualMonthlyRevenue"`
 }
 
 func GetInvoices(c *gin.Context) {
@@ -126,6 +137,7 @@ func GetInvoices(c *gin.Context) {
 			PaymentDate:     nil,
 			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
+			AdminID:         invoice.AdminID,
 		})
 	}
 
@@ -184,6 +196,7 @@ func GetDetailInvoice(c *gin.Context) {
 		PaymentDate:     nil,
 		CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
+		AdminID:         invoice.AdminID,
 		User: InvoiceUserResponse{
 			ID:          user.ID,
 			Email:       user.Email,
@@ -393,6 +406,7 @@ func UpdatePaymentStatus(c *gin.Context) {
 			RemainingAmount: invoice.RemainingAmount,
 			Status:          invoice.Status,
 			PaymentDate:     nil,
+			AdminID:         invoice.AdminID,
 			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
@@ -431,79 +445,93 @@ func UpdatePaymentStatus(c *gin.Context) {
 func GetTotal(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
 		return
 	}
 
 	if currentUserRole != 1 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Access denied", "id": currentUserID})
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
 		return
 	}
 
-	var invoices []models.Invoice
-	var invoiceResponses []InvoiceResponse
-	var totalInvoices int64
-
-	pageStr := c.DefaultQuery("page", "0")
-	limitStr := c.DefaultQuery("limit", "10")
-
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page < 0 {
-		page = 0
-	}
-
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		limit = 10
-	}
-
-	tx := config.DB.Model(&models.Invoice{})
-
-	if err := tx.Count(&totalInvoices).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to count invoices"})
+	var users []models.User
+	if err := config.DB.Where("role = ?", 2).Find(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách người dùng"})
 		return
 	}
 
-	if err := tx.Order("updated_at DESC").
-		Offset(page * limit).
-		Limit(limit).
-		Find(&invoices).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to fetch invoices"})
-		return
+	calculateRevenue := func(userID uint) (float64, float64, float64, float64, float64, float64, error) {
+		var totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue float64
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ?", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&totalAmount).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&currentMonthRevenue).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 MONTH') AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&lastMonthRevenue).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		if err := config.DB.Model(&models.Invoice{}).
+			Where("admin_id = ? AND EXTRACT(WEEK FROM created_at) = EXTRACT(WEEK FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Scan(&currentWeekRevenue).Error; err != nil {
+			return 0, 0, 0, 0, 0, 0, nil
+		}
+
+		vat := totalAmount * 0.3
+
+		actualMonthlyRevenue := currentMonthRevenue - vat
+
+		return totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, actualMonthlyRevenue, nil
 	}
 
-	for _, invoice := range invoices {
-		invoiceResponses = append(invoiceResponses, InvoiceResponse{
-			ID:              invoice.ID,
-			InvoiceCode:     invoice.InvoiceCode,
-			OrderID:         invoice.OrderID,
-			TotalAmount:     invoice.TotalAmount,
-			PaidAmount:      invoice.PaidAmount,
-			RemainingAmount: invoice.RemainingAmount,
-			Status:          invoice.Status,
-			PaymentDate:     nil,
-			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
+	var totalResponses []ToTalResponse
+	for _, user := range users {
+		totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, actualMonthlyRevenue, err := calculateRevenue(user.ID)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": fmt.Sprintf("Không thể tính doanh thu cho người dùng %d", user.ID)})
+			return
+		}
+
+		totalResponses = append(totalResponses, ToTalResponse{
+			User: InvoiceUserResponse{
+				ID:          user.ID,
+				Email:       user.Email,
+				PhoneNumber: user.PhoneNumber,
+			},
+			TotalAmount:          totalAmount,
+			CurrentMonthRevenue:  currentMonthRevenue,
+			LastMonthRevenue:     lastMonthRevenue,
+			CurrentWeekRevenue:   currentWeekRevenue,
+			VAT:                  vat,
+			ActualMonthlyRevenue: actualMonthlyRevenue,
 		})
 	}
 
-	responseData := gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
-		"mess": "Invoices fetched successfully",
-		"data": invoiceResponses,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": totalInvoices,
-		},
-	}
-
-	c.JSON(http.StatusOK, responseData)
+		"mess": "Lấy doanh thu của người dùng thành công",
+		"data": totalResponses,
+	})
 }

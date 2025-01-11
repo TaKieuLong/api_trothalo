@@ -20,6 +20,7 @@ type Invoice struct {
 	PaymentType     *int       `json:"paymentType"`           // 0: tiền mặt , 1: ck ngân hàng, 2:momo
 	CreatedAt       time.Time  `gorm:"autoCreateTime" json:"createdAt"`
 	UpdatedAt       time.Time  `gorm:"autoUpdateTime" json:"updatedAt"`
+	AdminID         uint       `json:"adminId" `
 }
 
 func (invoice *Invoice) BeforeCreate(tx *gorm.DB) (err error) {
