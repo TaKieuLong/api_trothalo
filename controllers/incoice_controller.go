@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"new/config"
 	"new/models"
+	"new/services"
 	"strconv"
 	"strings"
 	"time"
@@ -462,8 +463,20 @@ func GetTotal(c *gin.Context) {
 		return
 	}
 
+	// Lấy tham số lọc
+	nameFilter := c.Query("name") // Lọc chung cho name, email và phone
+
 	var users []models.User
-	if err := config.DB.Where("role = ?", 2).Find(&users).Error; err != nil {
+
+	query := config.DB.Where("role = ?", 2) // Chỉ lấy người dùng có role = 2
+
+	// Thêm điều kiện lọc nếu nameFilter không rỗng
+	if nameFilter != "" {
+		query = query.Where("name ILIKE ? OR email ILIKE ? OR phone_number ILIKE ?", "%"+nameFilter+"%", "%"+nameFilter+"%", "%"+nameFilter+"%")
+	}
+
+	// Thực hiện truy vấn lấy danh sách người dùng
+	if err := query.Find(&users).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách người dùng"})
 		return
 	}
@@ -542,5 +555,82 @@ func GetTotal(c *gin.Context) {
 		"code": 1,
 		"mess": "Lấy doanh thu của người dùng thành công",
 		"data": totalResponses,
+	})
+}
+
+func SendPay(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		return
+	}
+
+	if currentUserRole != 1 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		return
+	}
+
+	var request struct {
+		Email        string  `json:"email" binding:"required"`
+		Vat          float64 `json:"vat" binding:"required"`
+		VatLastMonth float64 `json:"vatLastMonth" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+		return
+	}
+
+	email := request.Email
+	vat := request.Vat
+	vatLastMonth := request.VatLastMonth
+	totalVat := vat + vatLastMonth
+
+	qrCodeURL := fmt.Sprintf(
+		"https://img.vietqr.io/image/SACOMBANK-060915374450-compact.jpg?amount=%.2f&addInfo=Chuyen%%20khoan%%20phi%%20",
+		totalVat,
+	)
+
+	emailContent := fmt.Sprintf(`
+	<!DOCTYPE html>
+	<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>Thông báo nhắc đóng phí</title>
+	</head>
+	<body>
+		<p>Xin chào bạn,</p>
+		<p>Đây là thông báo nhắc nhở bạn hoàn thành việc đóng phí đúng hẹn.</p>
+		<p><strong>Thông tin doanh thu của bạn:</strong></p>
+		<ul>
+			<li>VAT hiện tại: <strong>%.2f</strong></li>
+			<li>VAT tháng trước: <strong>%.2f</strong></li>
+			<li><strong>Tổng số thanh toán:</strong> <span style="color: red;">%.2f</span></li>
+		</ul>
+		<p>Bạn vui lòng quét mã QR bên dưới để hoàn tất thanh toán:</p>
+		<p>
+			<img alt="QR Code for Payment" src="%s" width="400">
+		</p>
+		<p>Chúng tôi rất cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
+		<p>Trân trọng,<br>Nhóm hỗ trợ</p>
+	</body>
+	</html>
+`, vat, vatLastMonth, totalVat, qrCodeURL)
+
+	if err := services.SendPayEmail(email, emailContent); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể gửi email", "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Email đã được gửi thành công",
 	})
 }

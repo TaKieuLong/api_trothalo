@@ -547,3 +547,20 @@ func CheckUserEligibilityForDiscount(userID uint) bool {
 
 	return true
 }
+
+func SendPayEmail(email string, emailContent string) error {
+	from := "takieulong@gmail.com"
+	password := "audj brda qhbq lpxu"
+
+	host := "smtp.gmail.com"
+	port := "587"
+	to := []string{email}
+	subject := "Subject: Thông báo phí thường niên\n"
+
+	msg := []byte("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n" + subject + "\n" + emailContent)
+
+	auth := smtp.PlainAuth("", from, password, host)
+
+	err := smtp.SendMail(host+":"+port, auth, from, to, msg)
+	return err
+}
