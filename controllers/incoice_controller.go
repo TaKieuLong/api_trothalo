@@ -580,7 +580,7 @@ func SendPay(c *gin.Context) {
 	var request struct {
 		Email        string `json:"email" binding:"required"`
 		Vat          int    `json:"vat" binding:"required"`
-		VatLastMonth int    `json:"vatLastMonth" binding:"required"`
+		VatLastMonth int    `json:"vatLastMonth"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
