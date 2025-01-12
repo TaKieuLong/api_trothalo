@@ -675,6 +675,22 @@ func loadAccommodationsFromDB(allAccommodations *[]models.Accommodation) error {
 		Preload("User.Banks").
 		Find(allAccommodations).Error
 }
+// Hàm tìm giá phòng thấp nhất cho một accommodation
+func assignLowestRoomPriceToAccommodation(acc *models.Accommodation) error {
+	var lowestPrice int
+	if err := config.DB.Model(&models.Room{}).
+		Where("accommodation_id = ?", acc.ID).
+		Order("price ASC"). // Chọn giá thấp nhất
+		Pluck("price", &lowestPrice).Error; err != nil {
+		return fmt.Errorf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
+	}
+
+	// Nếu có phòng và giá hợp lệ, cập nhật giá thấp nhất cho accommodation
+	if lowestPrice > 0 {
+		acc.Price = lowestPrice
+	}
+	return nil
+}
 func GetAllAccommodationsForUser(c *gin.Context) {
 	// Các tham số filter
 	typeFilter := c.Query("type")
@@ -809,31 +825,16 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			}
 		}
 	}
+	
 	//gán giá trị phòng thấp nhất cho dạng hotel
 	for _, acc := range allAccommodations {
 		if acc.Type == 0 {
-			var lowestPrice int
-			if err := config.DB.Model(&models.Room{}).
-				Where("accommodation_id = ?", acc.ID).
-				Order("price DESC").
-				Pluck("price", &lowestPrice).Error; err != nil {
-				log.Printf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
+			if err := assignLowestRoomPriceToAccommodation(&acc); err != nil {
+				log.Printf("Lỗi khi gán giá phòng cho accommodation %d: %v", acc.ID, err)
 				continue
-			}
-
-			// Nếu có phòng, cập nhật giá thấp nhất cho accommodation
-			if lowestPrice > 0 {
-				acc.Price = lowestPrice
-				for i := range allAccommodations {
-					if allAccommodations[i].ID == acc.ID {
-						allAccommodations[i].Price = lowestPrice
-						break
-					}
-				}
-			}
-
 		}
 	}
+
 	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
 	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
 	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
@@ -874,17 +875,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		if districtFilter != "" {
-			decodedDistrictFilter, err := url.QueryUnescape(districtFilter)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu province không hợp lệ"})
-				return
-			}
-
-			// Tìm kiếm chuỗi gần đúng
-			closest := cmDistrict.Closest(normalizeInput(decodedDistrictFilter))
-
-			// So sánh nếu chuỗi gần đúng khớp với district của accommodation
-			if normalizeInput(acc.Province) != closest {
+			decodedDistrictFilter, _ := url.QueryUnescape(districtFilter)
+			if !strings.Contains(strings.ToLower(acc.District), strings.ToLower(decodedDistrictFilter)) {
 				continue
 			}
 		}
