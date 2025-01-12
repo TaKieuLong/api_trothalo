@@ -675,6 +675,7 @@ func loadAccommodationsFromDB(allAccommodations *[]models.Accommodation) error {
 		Preload("User.Banks").
 		Find(allAccommodations).Error
 }
+
 // Hàm tìm giá phòng thấp nhất cho một accommodation
 func assignLowestRoomPriceToAccommodation(acc *models.Accommodation) error {
 	var lowestPrice int
@@ -825,13 +826,14 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	//gán giá trị phòng thấp nhất cho dạng hotel
 	for _, acc := range allAccommodations {
 		if acc.Type == 0 {
 			if err := assignLowestRoomPriceToAccommodation(&acc); err != nil {
 				log.Printf("Lỗi khi gán giá phòng cho accommodation %d: %v", acc.ID, err)
 				continue
+			}
 		}
 	}
 
