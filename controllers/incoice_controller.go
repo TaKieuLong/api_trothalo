@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"new/config"
 	"new/models"
 	"new/services"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +26,7 @@ type InvoiceResponse struct {
 	TotalAmount     float64             `json:"totalAmount"`
 	PaidAmount      float64             `json:"paidAmount"`
 	RemainingAmount float64             `json:"remainingAmount"`
-	Status          int                 `json:"status"`
+	Status          uint                `json:"status"`
 	PaymentDate     *string             `json:"paymentDate,omitempty"`
 	CreatedAt       string              `json:"createdAt"`
 	UpdatedAt       string              `json:"updatedAt"`
@@ -61,6 +64,27 @@ func GetInvoices(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
 		return
+	}
+
+	invoiceCodeFilter := c.Query("invoiceCode")
+	statusFilter := c.Query("status")
+
+	pageStr := c.Query("page")
+	limitStr := c.Query("limit")
+
+	page := 0
+	limit := 10
+
+	if pageStr != "" {
+		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
+			page = parsedPage
+		}
+	}
+
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
 	}
 
 	// Tạo cache key dựa trên role và userID
@@ -110,34 +134,6 @@ func GetInvoices(c *gin.Context) {
 		}
 
 		for _, invoice := range invoices {
-			var order models.Order
-			if err := config.DB.Where("id = ?", invoice.OrderID).First(&order).Error; err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy đơn hàng liên quan!"})
-				return
-			}
-
-			var user models.User
-			var userResponse InvoiceUserResponse
-
-			if order.UserID != nil {
-				if err := config.DB.Where("id = ?", order.UserID).First(&user).Error; err != nil {
-					c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy người dùng liên quan!"})
-					return
-				}
-				userResponse = InvoiceUserResponse{
-					ID:          user.ID,
-					Name:        user.Name,
-					Email:       user.Email,
-					PhoneNumber: user.PhoneNumber,
-				}
-			} else {
-				userResponse = InvoiceUserResponse{
-					Name:        order.GuestName,
-					Email:       order.GuestEmail,
-					PhoneNumber: order.GuestPhone,
-				}
-			}
-
 			allInvoices = append(allInvoices, InvoiceResponse{
 				ID:              invoice.ID,
 				InvoiceCode:     invoice.InvoiceCode,
@@ -150,7 +146,6 @@ func GetInvoices(c *gin.Context) {
 				CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 				UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
 				AdminID:         invoice.AdminID,
-				User:            userResponse,
 			})
 		}
 
@@ -160,11 +155,53 @@ func GetInvoices(c *gin.Context) {
 		}
 	}
 
+	filteredInvoices := make([]InvoiceResponse, 0)
+	for _, invoice := range allInvoices {
+		if invoiceCodeFilter != "" {
+			decodedNameFilter, _ := url.QueryUnescape(invoiceCodeFilter)
+			if !strings.Contains(strings.ToLower(invoice.InvoiceCode), strings.ToLower(decodedNameFilter)) {
+				continue
+			}
+		}
+		if statusFilter != "" {
+			parsedStatusFilter, err := strconv.ParseUint(statusFilter, 10, 32) // Parse thành uint
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Invalid status filter"})
+				return
+			}
+
+			if uint(invoice.Status) != uint(parsedStatusFilter) { // So sánh với giá trị uint
+				continue
+			}
+		}
+		filteredInvoices = append(filteredInvoices, invoice)
+	}
+
+	sort.Slice(filteredInvoices, func(i, j int) bool {
+		return filteredInvoices[i].CreatedAt > filteredInvoices[j].CreatedAt
+	})
+	total := len(filteredInvoices)
+
+	start := page * limit
+	end := start + limit
+	if start >= total {
+		filteredInvoices = []InvoiceResponse{}
+	} else if end > total {
+		filteredInvoices = filteredInvoices[start:]
+	} else {
+		filteredInvoices = filteredInvoices[start:end]
+	}
+
 	// Trả kết quả
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
-		"mess": "lấy data hóa đơn thành công",
-		"data": allInvoices,
+		"mess": "Lấy data hóa đơn thành công",
+		"data": filteredInvoices,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+		},
 	})
 }
 

@@ -15,7 +15,7 @@ type Invoice struct {
 	TotalAmount     float64    `json:"totalAmount"`           // Tổng số tiền từ Order
 	PaidAmount      float64    `json:"paidAmount"`            // Số tiền đã thanh toán
 	RemainingAmount float64    `json:"remainingAmount"`       // Số tiền còn phải thanh toán
-	Status          int        `json:"status"`                // 0: Chưa thanh toán, 1: Đã thanh toán
+	Status          uint       `json:"status"`                // 0: Chưa thanh toán, 1: Đã thanh toán
 	PaymentDate     *time.Time `json:"paymentDate,omitempty"` // Ngày thanh toán
 	PaymentType     *int       `json:"paymentType"`           // 0: tiền mặt , 1: ck ngân hàng, 2:momo
 	CreatedAt       time.Time  `gorm:"autoCreateTime" json:"createdAt"`
