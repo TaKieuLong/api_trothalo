@@ -706,8 +706,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	peopleFilter := c.Query("people")
 	// searchQuery := c.Query("search")
 
-	fromDateStr := c.Query("fromDate")
-	toDateStr := c.Query("toDate")
+	// fromDateStr := c.Query("fromDate")
+	// toDateStr := c.Query("toDate")
 
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
@@ -727,24 +727,24 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 	}
 
-	var fromDate, toDate time.Time
-	var err error
+	// var fromDate, toDate time.Time
+	// var err error
 
-	if fromDateStr != "" {
-		fromDate, err = time.Parse("02/01/2006", fromDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
-			return
-		}
-	}
+	// if fromDateStr != "" {
+	// 	fromDate, err = time.Parse("02/01/2006", fromDateStr)
+	// 	if err != nil {
+	// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
+	// 		return
+	// 	}
+	// }
 
-	if toDateStr != "" {
-		toDate, err = time.Parse("02/01/2006", toDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
-			return
-		}
-	}
+	// if toDateStr != "" {
+	// 	toDate, err = time.Parse("02/01/2006", toDateStr)
+	// 	if err != nil {
+	// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
+	// 		return
+	// 	}
+	// }
 
 	// Redis cache key
 	cacheKey := "accommodations:all"
@@ -859,15 +859,15 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			}
 		}
 
-		statuses, err := getAccommodationStatuses(acc.ID, fromDate, toDate)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
-			return
-		}
+		// statuses, err := getAccommodationStatuses(acc.ID, fromDate, toDate)
+		// if err != nil {
+		// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+		// 	return
+		// }
 
-		if len(statuses) > 0 {
-			continue
-		}
+		// if len(statuses) > 0 {
+		// 	continue
+		// }
 
 		if provinceFilter != "" {
 			decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
