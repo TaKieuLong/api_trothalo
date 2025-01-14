@@ -722,8 +722,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	peopleFilter := c.Query("people")
 	searchQuery := c.Query("search")
 
-	fromDateStr := c.Query("fromDate")
-	toDateStr := c.Query("toDate")
+	// fromDateStr := c.Query("fromDate")
+	// toDateStr := c.Query("toDate")
 
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
@@ -743,24 +743,30 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 	}
 
-	var fromDate, toDate time.Time
-	var err error
+	// var fromDate, toDate time.Time
+	// var err error
 
-	if fromDateStr != "" {
-		fromDate, err = time.Parse("02/01/2006", fromDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
-			return
-		}
-	}
+	// if fromDateStr != "" {
+	// 	fromDate, err = time.Parse("02/01/2006", fromDateStr)
+	// 	if err != nil {
+	// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
+	// 		return
+	// 	}
+	// }
 
-	if toDateStr != "" {
-		toDate, err = time.Parse("02/01/2006", toDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
-			return
-		}
-	}
+	// if toDateStr != "" {
+	// 	toDate, err = time.Parse("02/01/2006", toDateStr)
+	// 	if err != nil {
+	// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
+	// 		return
+	// 	}
+	// }
+
+	// statuses, err := getAccommodationStatuses(acc.ID, fromDate, toDate)
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+	// 	return
+	// }
 
 	// Redis cache key
 	cacheKey := "accommodations:all"
@@ -843,30 +849,30 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	}
 
 	//gán giá trị phòng thấp nhất cho dạng hotel
-	for _, acc := range allAccommodations {
-		if acc.Type == 0 {
-			var lowestPrice int
-			if err := config.DB.Model(&models.Room{}).
-				Where("accommodation_id = ?", acc.ID).
-				Order("price DESC").
-				Pluck("price", &lowestPrice).Error; err != nil {
-				log.Printf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
-				continue
-			}
+	// for _, acc := range allAccommodations {
+	// 	if acc.Type == 0 {
+	// 		var lowestPrice int
+	// 		if err := config.DB.Model(&models.Room{}).
+	// 			Where("accommodation_id = ?", acc.ID).
+	// 			Order("price DESC").
+	// 			Pluck("price", &lowestPrice).Error; err != nil {
+	// 			log.Printf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
+	// 			continue
+	// 		}
 
-			// Nếu có phòng, cập nhật giá thấp nhất cho accommodation
-			if lowestPrice > 0 {
-				acc.Price = lowestPrice
-				for i := range allAccommodations {
-					if allAccommodations[i].ID == acc.ID {
-						allAccommodations[i].Price = lowestPrice
-						break
-					}
-				}
-			}
+	// 		// Nếu có phòng, cập nhật giá thấp nhất cho accommodation
+	// 		if lowestPrice > 0 {
+	// 			acc.Price = lowestPrice
+	// 			for i := range allAccommodations {
+	// 				if allAccommodations[i].ID == acc.ID {
+	// 					allAccommodations[i].Price = lowestPrice
+	// 					break
+	// 				}
+	// 			}
+	// 		}
 
-		}
-	}
+	// 	}
+	// }
 
 	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
 	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
@@ -888,16 +894,6 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			if err == nil && acc.Status != parsedStatusFilter {
 				continue
 			}
-		}
-
-		statuses, err := getAccommodationStatuses(acc.ID, fromDate, toDate)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
-			return
-		}
-
-		if len(statuses) > 0 {
-			continue
 		}
 
 		if provinceFilter != "" {
