@@ -112,8 +112,7 @@ func GetAllBenefit(c *gin.Context) {
 	cacheKey := "benefits:all"
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis", "error": err.Error()})
-		return
+		c.JSON(http.StatusMovedPermanently, gin.H{"code": 0, "mess": "Không thể kết nối Redis", "error": err.Error()})
 	}
 
 	var allBenefits []models.Benefit
@@ -127,7 +126,7 @@ func GetAllBenefit(c *gin.Context) {
 		}
 
 		// Lưu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allBenefits, 10*time.Minute); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allBenefits, 24*60*60*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách lợi ích vào Redis: %v", err)
 		}
 	}
