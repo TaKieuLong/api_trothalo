@@ -136,11 +136,43 @@ type AccommodationDetailResponse struct {
 
 func getAccommodationStatuses(accommodationID uint, fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
 	var statuses []models.AccommodationStatus
-	err := config.DB.Where("accommodation_id = ? AND status != 0 AND from_date <= ? AND to_date >= ?", accommodationID, toDate, fromDate).
-		Find(&statuses).Error
+
+	// Redis cache key
+	cacheKey := "accommodations:statuses"
+	rdb, err := config.ConnectRedis()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
 	}
+
+	// Lấy dữ liệu từ Redis
+	var cachedStatuses []models.AccommodationStatus
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &cachedStatuses); err == nil && len(cachedStatuses) > 0 {
+		// Lọc trạng thái phù hợp với accommodationID và khoảng thời gian
+		for _, status := range cachedStatuses {
+			if status.AccommodationID == accommodationID &&
+				status.FromDate.Before(toDate) && status.ToDate.After(fromDate) {
+				statuses = append(statuses, status)
+			}
+		}
+		// Nếu tìm thấy đủ dữ liệu, trả về
+		if len(statuses) > 0 {
+			return statuses, nil
+		}
+	}
+
+	// Nếu không có dữ liệu trong Redis hoặc không đủ, lấy từ cơ sở dữ liệu
+	err = config.DB.Where("accommodation_id = ? AND status != 0 AND from_date <= ? AND to_date >= ?",
+		accommodationID, toDate, fromDate).Find(&statuses).Error
+	if err != nil {
+		return nil, fmt.Errorf("không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
+	}
+
+	// Lưu lại dữ liệu vào Redis để sử dụng lần sau
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, statuses, 60*time.Minute); err != nil {
+		// Log lỗi nhưng không trả lỗi vì đây không phải lỗi chính
+		fmt.Printf("không thể lưu dữ liệu vào Redis: %v\n", err)
+	}
+
 	return statuses, nil
 }
 
@@ -320,7 +352,7 @@ func GetAllAccommodations(c *gin.Context) {
 		}
 
 		// Lưu dữ liệu đã ép kiểu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accommodationsResponse, 10*time.Minute); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accommodationsResponse, 60*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
 		}
 
@@ -805,7 +837,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		// Lưu dữ liệu đã ép kiểu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accommodationsResponse, 10*time.Minute); err != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accommodationsResponse, 60*time.Minute); err != nil {
 			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
 		}
 	}
