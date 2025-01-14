@@ -716,7 +716,7 @@ func loadAccommodationsFromDB(allAccommodations *[]models.Accommodation) error {
 		Find(allAccommodations).Error
 }
 
-func isMatch(acc models.Accommodation, typeFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter string, benefitIDs []int, statusMap map[uint]bool) bool {
+func isMatch(acc models.Accommodation, typeFilter, nameFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter string, benefitIDs []int, statusMap map[uint]bool) bool {
 	// Kiểm tra trạng thái có trong statusMap
 	if _, exists := statusMap[uint(acc.ID)]; exists {
 		return false
@@ -726,6 +726,13 @@ func isMatch(acc models.Accommodation, typeFilter, statusFilter, provinceFilter,
 	if typeFilter != "" {
 		parsedTypeFilter, err := strconv.Atoi(typeFilter)
 		if err == nil && acc.Type != parsedTypeFilter {
+			return false
+		}
+	}
+
+	if nameFilter != "" {
+		decodedNameFilter, _ := url.QueryUnescape(nameFilter)
+		if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedNameFilter)) {
 			return false
 		}
 	}
@@ -990,7 +997,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
-		if !isMatch(acc, typeFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter, benefitIDs, statusMap) {
+		if !isMatch(acc, typeFilter, nameFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter, benefitIDs, statusMap) {
 			continue
 		}
 		filteredAccommodations = append(filteredAccommodations, acc)
@@ -1003,21 +1010,6 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		filteredAccommodations = []models.Accommodation{}
 		for _, scoredAcc := range scoredAccommodations {
 			filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
-		}
-	}
-
-	if nameFilter != "" {
-		decodedNameFilter, _ := url.QueryUnescape(nameFilter)
-
-		// Tìm kiếm chuỗi gần đúng
-		closest := cmName.Closest(normalizeInput(decodedNameFilter))
-
-		// Lọc các accommodation có tên gần đúng với nameFilter
-		filteredAccommodations = []models.Accommodation{}
-		for _, acc := range filteredAccommodations {
-			if normalizeInput(acc.Name) == closest {
-				filteredAccommodations = append(filteredAccommodations, acc)
-			}
 		}
 	}
 
