@@ -80,6 +80,9 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	input.Identifier = strings.ToLower(input.Identifier)
+	input.Password = strings.ToLower(input.Password)
+
 	var user models.User
 	if err := config.DB.Preload("Banks").Where("email = ? OR phone_number = ?", input.Identifier, input.Identifier).First(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Email hoặc mật khẩu không hợp lệ"})
