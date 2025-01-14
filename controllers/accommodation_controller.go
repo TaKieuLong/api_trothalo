@@ -134,19 +134,47 @@ type AccommodationDetailResponse struct {
 	Latitude         float64          `json:"latitude"`
 }
 
-func getAllAccommodationStatuses(fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
+func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
 	var statuses []models.AccommodationStatus
 
-	today := time.Now().Truncate(24 * time.Hour)
+	// Tạo cache key
+	cacheKey := "accommodations:statuses"
 
-	err := config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
+	// Kết nối Redis
+	rdb, err := config.ConnectRedis()
 	if err != nil {
-		return nil, fmt.Errorf("không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		return nil, fmt.Errorf("Không thể kết nối Redis: %v", err)
 	}
 
+	// Thử lấy dữ liệu từ Redis
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &statuses); err == nil && len(statuses) > 0 {
+		// Nếu lấy thành công và có dữ liệu, trả về
+		var filteredStatuses []models.AccommodationStatus
+		for _, status := range statuses {
+			if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
+				(status.ToDate.Before(toDate) || status.ToDate.Equal(toDate)) {
+				filteredStatuses = append(filteredStatuses, status)
+			}
+		}
+		return filteredStatuses, nil
+	}
+
+	// Nếu không có trong Redis, truy vấn từ cơ sở dữ liệu
+	today := time.Now().Truncate(24 * time.Hour)
+	err = config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
+	if err != nil {
+		return nil, fmt.Errorf("Không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
+	}
+
+	// Lưu dữ liệu vào Redis
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, statuses, 60*time.Minute); err != nil {
+		log.Printf("Lỗi khi lưu dữ liệu vào Redis: %v", err)
+	}
+
+	// Lọc dữ liệu theo ngày
 	var filteredStatuses []models.AccommodationStatus
 	for _, status := range statuses {
-
 		if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
 			(status.ToDate.Before(toDate) || status.ToDate.Equal(toDate)) {
 			filteredStatuses = append(filteredStatuses, status)
@@ -836,7 +864,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 	}
 
-	statuses, err := getAllAccommodationStatuses(fromDate, toDate)
+	statuses, err := getAllAccommodationStatuses(c, fromDate, toDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
 		return
