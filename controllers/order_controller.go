@@ -683,6 +683,12 @@ func ChangeOrderStatus(c *gin.Context) {
 	}
 
 	if req.Status == 1 {
+		var existingInvoice models.Invoice
+		if err := config.DB.Where("order_id = ?", order.ID).First(&existingInvoice).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{"code": 0, "mess": "Hóa đơn đã tồn tại cho đơn hàng này"})
+			return
+		}
+
 		var Remaining = order.TotalPrice - req.PaidAmount
 
 		invoice := models.Invoice{
