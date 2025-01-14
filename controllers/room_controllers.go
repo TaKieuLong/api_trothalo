@@ -635,7 +635,6 @@ func GetAllRoomsUser(c *gin.Context) {
 			"limit": limit,
 			"total": totalRooms,
 		},
-		"test": statuses,
 	})
 }
 
