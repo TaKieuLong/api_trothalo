@@ -3,11 +3,11 @@ package controllers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"new/config"
 	"new/models"
 	"new/services"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,59 +63,35 @@ func GetInvoices(c *gin.Context) {
 		return
 	}
 
-	var invoices []models.Invoice
+	// Tạo cache key dựa trên role và userID
+	var cacheKey string
+	if currentUserRole == 2 {
+		cacheKey = fmt.Sprintf("invoices:admin:%d", currentUserID)
+	} else if currentUserRole == 3 {
+		cacheKey = fmt.Sprintf("invoices:receptionist:%d", currentUserID)
+	} else {
+		cacheKey = "invoices:all"
+	}
+
+	// Kết nối Redis
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to connect to Redis"})
+		return
+	}
+
 	var invoiceResponses []InvoiceResponse
-	var totalInvoices int64
-
-	pageStr := c.DefaultQuery("page", "0")
-	limitStr := c.DefaultQuery("limit", "10")
-	invoiceCode := c.DefaultQuery("invoiceCode", "")
-	fromDateStr := c.DefaultQuery("fromDate", "")
-	toDateStr := c.DefaultQuery("toDate", "")
-
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page < 0 {
-		page = 0
+	// Kiểm tra cache từ Redis
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &invoiceResponses); err == nil && len(invoiceResponses) > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 1,
+			"mess": "Invoices fetched successfully (from cache)",
+			"data": invoiceResponses,
+		})
+		return
 	}
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		limit = 10
-	}
-
-	var fromDate, toDate time.Time
-	if fromDateStr != "" {
-		fromDate, err = time.Parse("2006-01-02", fromDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Invalid fromDate format"})
-			return
-		}
-	}
-	if toDateStr != "" {
-		toDate, err = time.Parse("2006-01-02", toDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Invalid toDate format"})
-			return
-		}
-	}
-
-	// redisClient, err := config.ConnectRedis()
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to connect to Redis"})
-	// 	return
-	// }
-
-	// cacheKey := fmt.Sprintf("invoices:all:page=%d:limit=%d", page, limit)
-
-	// cachedData, err := redisClient.Get(config.Ctx, cacheKey).Result()
-	// if err == nil && cachedData != "" {
-	// 	var cachedResponse gin.H
-	// 	if json.Unmarshal([]byte(cachedData), &cachedResponse) == nil {
-	// 		c.JSON(http.StatusOK, cachedResponse)
-	// 		return
-	// 	}
-	// }
-
+	// Query DB nếu không có cache
 	tx := config.DB.Model(&models.Invoice{})
 	if currentUserRole == 2 {
 		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
@@ -123,44 +99,25 @@ func GetInvoices(c *gin.Context) {
 			Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
 			Where("accommodations.user_id = ?", currentUserID))
 	} else if currentUserRole == 3 {
-		var user models.User
-		if err := config.DB.Where("id = ?", currentUserID).First(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tìm thấy người dùng"})
+		var adminID int
+		if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
 			return
 		}
 		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
 			Select("orders.id").
 			Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
-			Where("accommodations.user_id = ?", user.AdminId))
+			Where("accommodations.user_id = ?", adminID))
 	}
 
-	if err := tx.Count(&totalInvoices).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to count invoices"})
-		return
-	}
-
-	if err := tx.Order("updated_at DESC").
-		Offset(page * limit).
-		Limit(limit).
-		Find(&invoices).Error; err != nil {
+	// Thực thi query
+	var invoices []models.Invoice
+	if err := tx.Find(&invoices).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to fetch invoices"})
 		return
 	}
 
-	if invoiceCode != "" {
-		tx = tx.Where("invoice_code LIKE ?", "%"+invoiceCode+"%")
-	}
-
-	// Điều kiện tìm kiếm theo khoảng thời gian (fromDate và toDate)
-	if !fromDate.IsZero() {
-		tx = tx.Where("created_at >= ?", fromDate)
-	}
-
-	if !toDate.IsZero() {
-		tx = tx.Where("created_at <= ?", toDate)
-	}
-
-	// Fetch additional related data for each invoice
+	// Xử lý dữ liệu hóa đơn
 	for _, invoice := range invoices {
 		var order models.Order
 		if err := config.DB.Where("id = ?", invoice.OrderID).First(&order).Error; err != nil {
@@ -171,7 +128,7 @@ func GetInvoices(c *gin.Context) {
 		var user models.User
 		var userResponse InvoiceUserResponse
 
-		if order.UserID != nil { // Kiểm tra nếu có UserID
+		if order.UserID != nil {
 			if err := config.DB.Where("id = ?", order.UserID).First(&user).Error; err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy người dùng liên quan!"})
 				return
@@ -182,7 +139,7 @@ func GetInvoices(c *gin.Context) {
 				Email:       user.Email,
 				PhoneNumber: user.PhoneNumber,
 			}
-		} else { // Nếu không có UserID, sử dụng thông tin khách (guest)
+		} else {
 			userResponse = InvoiceUserResponse{
 				Name:        order.GuestName,
 				Email:       order.GuestEmail,
@@ -190,7 +147,6 @@ func GetInvoices(c *gin.Context) {
 			}
 		}
 
-		// Append invoice response with User information
 		invoiceResponses = append(invoiceResponses, InvoiceResponse{
 			ID:              invoice.ID,
 			InvoiceCode:     invoice.InvoiceCode,
@@ -207,32 +163,16 @@ func GetInvoices(c *gin.Context) {
 		})
 	}
 
-	responseData := gin.H{
+	// Lưu dữ liệu vào Redis
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, invoiceResponses, 60*time.Minute); err != nil {
+		log.Printf("Error caching invoices: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Invoices fetched successfully",
 		"data": invoiceResponses,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": totalInvoices,
-		},
-	}
-
-	// jsonData, err := json.Marshal(responseData)
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error processing data"})
-	// 	return
-	// }
-
-	// ttl := 10 * time.Minute
-
-	// err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to save cache"})
-	// 	return
-	// }
-
-	c.JSON(http.StatusOK, responseData)
+	})
 }
 
 func GetDetailInvoice(c *gin.Context) {
