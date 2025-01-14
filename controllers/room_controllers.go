@@ -726,6 +726,8 @@ func CreateRoom(c *gin.Context) {
 			_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
 		case 2: // Admin
 			adminCacheKey := fmt.Sprintf("rooms:admin:%d", currentUserID)
+			accommodationsCacheKey := fmt.Sprintf("accommodations:admin:%d", currentUserID)
+			_ = services.DeleteFromRedis(config.Ctx, rdb, accommodationsCacheKey)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
 			var receptionistIDs []int
@@ -902,9 +904,12 @@ func UpdateRoom(c *gin.Context) {
 			_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
 		case 2: // Admin
 			adminCacheKey := fmt.Sprintf("rooms:admin:%d", currentUserID)
+			accommodationsCacheKey := fmt.Sprintf("accommodations:admin:%d", currentUserID)
+			_ = services.DeleteFromRedis(config.Ctx, rdb, accommodationsCacheKey)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, CacheKey2)
 			_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:all")
+
 			var receptionistIDs []int
 			if err := config.DB.Model(&models.User{}).Where("admin_id = ?", currentUserID).Pluck("id", &receptionistIDs).Error; err == nil {
 				for _, receptionistID := range receptionistIDs {
