@@ -62,28 +62,9 @@ func GetDiscounts(c *gin.Context) {
 
 	var discounts []models.Discount
 
-	currentDate := time.Now()
-
 	if err := config.DB.Find(&discounts).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách chương trình giảm giá"})
 		return
-	}
-
-	for i, discount := range discounts {
-
-		toDate, err := time.Parse("02/01/2006", discount.ToDate)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Định dạng ngày không hợp lệ trong mã giảm giá"})
-			return
-		}
-
-		if discount.ID != 1 && toDate.Before(currentDate) && discount.Status == 1 {
-			discounts[i].Status = 0
-			if err := config.DB.Save(&discounts[i]).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái mã giảm giá đã hết hạn"})
-				return
-			}
-		}
 	}
 
 	pageStr := c.Query("page")
