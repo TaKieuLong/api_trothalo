@@ -80,98 +80,91 @@ func GetInvoices(c *gin.Context) {
 		return
 	}
 
-	var invoiceResponses []InvoiceResponse
-	// Kiểm tra cache từ Redis
-	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &invoiceResponses); err == nil && len(invoiceResponses) > 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 1,
-			"mess": "Invoices fetched successfully (from cache)",
-			"data": invoiceResponses,
-		})
-		return
-	}
+	var allInvoices []InvoiceResponse
 
-	// Query DB nếu không có cache
-	tx := config.DB.Model(&models.Invoice{})
-	if currentUserRole == 2 {
-		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
-			Select("orders.id").
-			Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
-			Where("accommodations.user_id = ?", currentUserID))
-	} else if currentUserRole == 3 {
-		var adminID int
-		if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
-			return
-		}
-		tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
-			Select("orders.id").
-			Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
-			Where("accommodations.user_id = ?", adminID))
-	}
+	// Lấy dữ liệu từ Redis
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allInvoices); err != nil || len(allInvoices) == 0 {
+		tx := config.DB.Model(&models.Invoice{})
 
-	// Thực thi query
-	var invoices []models.Invoice
-	if err := tx.Find(&invoices).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to fetch invoices"})
-		return
-	}
-
-	// Xử lý dữ liệu hóa đơn
-	for _, invoice := range invoices {
-		var order models.Order
-		if err := config.DB.Where("id = ?", invoice.OrderID).First(&order).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy đơn hàng liên quan!"})
-			return
-		}
-
-		var user models.User
-		var userResponse InvoiceUserResponse
-
-		if order.UserID != nil {
-			if err := config.DB.Where("id = ?", order.UserID).First(&user).Error; err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy người dùng liên quan!"})
+		if currentUserRole == 2 {
+			tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
+				Select("orders.id").
+				Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
+				Where("accommodations.user_id = ?", currentUserID))
+		} else if currentUserRole == 3 {
+			var adminID int
+			if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
 				return
 			}
-			userResponse = InvoiceUserResponse{
-				ID:          user.ID,
-				Name:        user.Name,
-				Email:       user.Email,
-				PhoneNumber: user.PhoneNumber,
-			}
-		} else {
-			userResponse = InvoiceUserResponse{
-				Name:        order.GuestName,
-				Email:       order.GuestEmail,
-				PhoneNumber: order.GuestPhone,
-			}
+			tx = tx.Where("order_id IN (?)", config.DB.Table("orders").
+				Select("orders.id").
+				Joins("JOIN accommodations ON accommodations.id = orders.accommodation_id").
+				Where("accommodations.user_id = ?", adminID))
 		}
 
-		invoiceResponses = append(invoiceResponses, InvoiceResponse{
-			ID:              invoice.ID,
-			InvoiceCode:     invoice.InvoiceCode,
-			OrderID:         invoice.OrderID,
-			TotalAmount:     invoice.TotalAmount,
-			PaidAmount:      invoice.PaidAmount,
-			RemainingAmount: invoice.RemainingAmount,
-			Status:          invoice.Status,
-			PaymentDate:     nil,
-			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
-			AdminID:         invoice.AdminID,
-			User:            userResponse,
-		})
+		var invoices []models.Invoice
+		if err := tx.Find(&invoices).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to fetch invoices"})
+			return
+		}
+
+		for _, invoice := range invoices {
+			var order models.Order
+			if err := config.DB.Where("id = ?", invoice.OrderID).First(&order).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy đơn hàng liên quan!"})
+				return
+			}
+
+			var user models.User
+			var userResponse InvoiceUserResponse
+
+			if order.UserID != nil {
+				if err := config.DB.Where("id = ?", order.UserID).First(&user).Error; err != nil {
+					c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy người dùng liên quan!"})
+					return
+				}
+				userResponse = InvoiceUserResponse{
+					ID:          user.ID,
+					Name:        user.Name,
+					Email:       user.Email,
+					PhoneNumber: user.PhoneNumber,
+				}
+			} else {
+				userResponse = InvoiceUserResponse{
+					Name:        order.GuestName,
+					Email:       order.GuestEmail,
+					PhoneNumber: order.GuestPhone,
+				}
+			}
+
+			allInvoices = append(allInvoices, InvoiceResponse{
+				ID:              invoice.ID,
+				InvoiceCode:     invoice.InvoiceCode,
+				OrderID:         invoice.OrderID,
+				TotalAmount:     invoice.TotalAmount,
+				PaidAmount:      invoice.PaidAmount,
+				RemainingAmount: invoice.RemainingAmount,
+				Status:          invoice.Status,
+				PaymentDate:     nil,
+				CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
+				UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
+				AdminID:         invoice.AdminID,
+				User:            userResponse,
+			})
+		}
+
+		// Lưu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allInvoices, 60*time.Minute); err != nil {
+			log.Printf("Error caching invoices: %v", err)
+		}
 	}
 
-	// Lưu dữ liệu vào Redis
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, invoiceResponses, 60*time.Minute); err != nil {
-		log.Printf("Error caching invoices: %v", err)
-	}
-
+	// Trả kết quả
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
-		"mess": "Invoices fetched successfully",
-		"data": invoiceResponses,
+		"mess": "lấy data hóa đơn thành công",
+		"data": allInvoices,
 	})
 }
 
