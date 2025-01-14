@@ -606,7 +606,6 @@ func CreateOrder(c *gin.Context) {
 
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "invoices:all")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:all")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:statuses")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:statuses")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
@@ -716,7 +715,6 @@ func ChangeOrderStatus(c *gin.Context) {
 
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "invoices:all")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:all")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:statuses")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:statuses")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
