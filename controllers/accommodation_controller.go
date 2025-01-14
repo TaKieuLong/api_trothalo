@@ -715,7 +715,7 @@ func assignLowestRoomPriceToAccommodation(acc *models.Accommodation) error {
 		Where("accommodation_id = ?", acc.ID).
 		Order("price ASC"). // Chọn giá thấp nhất
 		Pluck("price", &lowestPrice).Error; err != nil {
-		return fmt.Errorf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
+		return fmt.Errorf("lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
 	}
 
 	// Nếu có phòng và giá hợp lệ, cập nhật giá thấp nhất cho accommodation
@@ -782,8 +782,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	cacheKey := "accommodations:all"
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-		return
+		c.JSON(http.StatusMovedPermanently, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
 	}
 
 	var allAccommodations []models.Accommodation
