@@ -10,5 +10,4 @@ type AccommodationStatus struct {
 	Status          int       // 0: có sẵn, 1: đã đặt, 2: đang bảo trì, v.v.
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
-	Accommodation   Accommodation `gorm:"foreignKey:AccommodationID" json:"accommodation"`
 }

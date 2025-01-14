@@ -134,46 +134,26 @@ type AccommodationDetailResponse struct {
 	Latitude         float64          `json:"latitude"`
 }
 
-func getAccommodationStatuses(accommodationID uint, fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
+func getAllAccommodationStatuses(fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
 	var statuses []models.AccommodationStatus
 
-	// Redis cache key
-	// cacheKey := "accommodations:statuses"
-	// rdb, err := config.ConnectRedis()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
-	// }
+	today := time.Now().Truncate(24 * time.Hour)
 
-	// Lấy dữ liệu từ Redis
-	// var cachedStatuses []models.AccommodationStatus
-	// if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &cachedStatuses); err == nil && len(cachedStatuses) > 0 {
-	// 	// Lọc trạng thái phù hợp với accommodationID và khoảng thời gian
-	// 	for _, status := range cachedStatuses {
-	// 		if status.AccommodationID == accommodationID &&
-	// 			status.FromDate.Before(toDate) && status.ToDate.After(fromDate) {
-	// 			statuses = append(statuses, status)
-	// 		}
-	// 	}
-	// 	// Nếu tìm thấy đủ dữ liệu, trả về
-	// 	if len(statuses) > 0 {
-	// 		return statuses, nil
-	// 	}
-	// }
-
-	// Nếu không có dữ liệu trong Redis hoặc không đủ, lấy từ cơ sở dữ liệu
-	err := config.DB.Where("accommodation_id = ? AND status != 0 AND from_date <= ? AND to_date >= ?",
-		accommodationID, toDate, fromDate).Find(&statuses).Error
+	err := config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
 	if err != nil {
 		return nil, fmt.Errorf("không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
 	}
 
-	// // Lưu lại dữ liệu vào Redis để sử dụng lần sau
-	// if err := services.SetToRedis(config.Ctx, rdb, cacheKey, statuses, 60*time.Minute); err != nil {
-	// 	// Log lỗi nhưng không trả lỗi vì đây không phải lỗi chính
-	// 	fmt.Printf("không thể lưu dữ liệu vào Redis: %v\n", err)
-	// }
+	var filteredStatuses []models.AccommodationStatus
+	for _, status := range statuses {
 
-	return statuses, nil
+		if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
+			(status.ToDate.Before(toDate) || status.ToDate.Equal(toDate)) {
+			filteredStatuses = append(filteredStatuses, status)
+		}
+	}
+
+	return filteredStatuses, nil
 }
 
 func GetAccBookingDates(c *gin.Context) {
@@ -722,8 +702,8 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	peopleFilter := c.Query("people")
 	searchQuery := c.Query("search")
 
-	// fromDateStr := c.Query("fromDate")
-	// toDateStr := c.Query("toDate")
+	fromDateStr := c.Query("fromDate")
+	toDateStr := c.Query("toDate")
 
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
@@ -743,30 +723,35 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 	}
 
-	// var fromDate, toDate time.Time
-	// var err error
+	var fromDate, toDate time.Time
+	var err error
 
-	// if fromDateStr != "" {
-	// 	fromDate, err = time.Parse("02/01/2006", fromDateStr)
-	// 	if err != nil {
-	// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
-	// 		return
-	// 	}
-	// }
+	if fromDateStr != "" {
+		fromDate, err = time.Parse("02/01/2006", fromDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
+			return
+		}
+	}
 
-	// if toDateStr != "" {
-	// 	toDate, err = time.Parse("02/01/2006", toDateStr)
-	// 	if err != nil {
-	// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
-	// 		return
-	// 	}
-	// }
+	if toDateStr != "" {
+		toDate, err = time.Parse("02/01/2006", toDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
+			return
+		}
+	}
 
-	// statuses, err := getAccommodationStatuses(acc.ID, fromDate, toDate)
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
-	// 	return
-	// }
+	statuses, err := getAllAccommodationStatuses(fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+		return
+	}
+
+	statusMap := make(map[uint]bool)
+	for _, status := range statuses {
+		statusMap[status.AccommodationID] = true
+	}
 
 	// Redis cache key
 	cacheKey := "accommodations:all"
@@ -968,6 +953,30 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 				continue
 			}
 		}
+
+		if len(benefitIDs) > 0 {
+			match := false
+			for _, benefit := range acc.Benefits {
+				for _, id := range benefitIDs {
+					if benefit.Id == id {
+						match = true
+						break
+					}
+				}
+				if match {
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+
+		// Kiểm tra trạng thái từ `statuses` để loại bỏ các accommodation có ID trùng
+		if _, exists := statusMap[acc.ID]; exists {
+			continue
+		}
+
 		filteredAccommodations = append(filteredAccommodations, acc)
 	}
 
@@ -1037,6 +1046,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			"limit": limit,
 			"total": total,
 		},
+		"test": statuses,
 	})
 }
 
