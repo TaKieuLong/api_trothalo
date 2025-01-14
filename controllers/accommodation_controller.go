@@ -688,6 +688,100 @@ func loadAccommodationsFromDB(allAccommodations *[]models.Accommodation) error {
 		Find(allAccommodations).Error
 }
 
+func isMatch(acc models.Accommodation, typeFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter string, benefitIDs []int, statusMap map[uint]bool) bool {
+	// Kiểm tra trạng thái có trong statusMap
+	if _, exists := statusMap[uint(acc.ID)]; exists {
+		return false
+	}
+
+	// Kiểm tra lọc theo typeFilter
+	if typeFilter != "" {
+		parsedTypeFilter, err := strconv.Atoi(typeFilter)
+		if err == nil && acc.Type != parsedTypeFilter {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo statusFilter
+	if statusFilter != "" {
+		parsedStatusFilter, err := strconv.Atoi(statusFilter)
+		if err == nil && acc.Status != parsedStatusFilter {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo provinceFilter
+	if provinceFilter != "" {
+		decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
+		if !strings.Contains(strings.ToLower(acc.Province), strings.ToLower(decodedProvinceFilter)) {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo districtFilter
+	if districtFilter != "" {
+		decodedDistrictFilter, _ := url.QueryUnescape(districtFilter)
+		if !strings.Contains(strings.ToLower(acc.District), strings.ToLower(decodedDistrictFilter)) {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo nameFilter (chuỗi gần đúng)
+
+	// Kiểm tra lọc theo numBedFilter
+	if numBedFilter != "" {
+		numBed, _ := strconv.Atoi(numBedFilter)
+		if acc.NumBed != numBed {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo numToletFilter
+	if numToletFilter != "" {
+		numTolet, _ := strconv.Atoi(numToletFilter)
+		if acc.NumTolet != numTolet {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo peopleFilter
+	if peopleFilter != "" {
+		people, _ := strconv.Atoi(peopleFilter)
+		if acc.People != people {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo numFilter
+	if numFilter != "" {
+		num, _ := strconv.Atoi(numFilter)
+		if acc.Num != num {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo benefitIDs
+	if len(benefitIDs) > 0 {
+		match := false
+		for _, benefit := range acc.Benefits {
+			for _, id := range benefitIDs {
+				if benefit.Id == id {
+					match = true
+					break
+				}
+			}
+			if match {
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	return true
+}
+
 func GetAllAccommodationsForUser(c *gin.Context) {
 	// Các tham số filter
 	typeFilter := c.Query("type")
@@ -865,118 +959,12 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	cmName := createMatcher(prepareNameAccommodations(allAccommodations))
 
 	// Áp dụng filter trên dữ liệu từ Redis
+
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
-		if typeFilter != "" {
-			parsedTypeFilter, err := strconv.Atoi(typeFilter)
-			if err == nil && acc.Type != parsedTypeFilter {
-				continue
-			}
-		}
-
-		if statusFilter != "" {
-			parsedStatusFilter, err := strconv.Atoi(statusFilter)
-			if err == nil && acc.Status != parsedStatusFilter {
-				continue
-			}
-		}
-
-		if provinceFilter != "" {
-			decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
-			if !strings.Contains(strings.ToLower(acc.Province), strings.ToLower(decodedProvinceFilter)) {
-				continue
-			}
-		}
-
-		if districtFilter != "" {
-			decodedDistrictFilter, _ := url.QueryUnescape(districtFilter)
-			if !strings.Contains(strings.ToLower(acc.District), strings.ToLower(decodedDistrictFilter)) {
-				continue
-			}
-		}
-
-		if nameFilter != "" {
-			decodedNameFilter, err := url.QueryUnescape(nameFilter)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu tên cơ sở không hợp lệ"})
-				return
-			}
-
-			// Tìm kiếm chuỗi gần đúng
-			closest := cmName.Closest(normalizeInput(decodedNameFilter))
-
-			// So sánh nếu chuỗi gần đúng khớp với name của accommodation
-			if normalizeInput(acc.Name) != closest {
-				continue
-			}
-		}
-
-		if numBedFilter != "" {
-			numBed, _ := strconv.Atoi(numBedFilter)
-			if acc.NumBed != numBed {
-				continue
-			}
-		}
-		if numToletFilter != "" {
-			numTolet, _ := strconv.Atoi(numToletFilter)
-			if acc.NumTolet != numTolet {
-				continue
-			}
-		}
-		if peopleFilter != "" {
-			people, _ := strconv.Atoi(peopleFilter)
-			if acc.People != people {
-				continue
-			}
-		}
-
-		if numFilter != "" {
-			num, _ := strconv.Atoi(numFilter)
-			if acc.Num != num {
-				continue
-			}
-		}
-		if len(benefitIDs) > 0 {
-			match := false
-			for _, benefit := range acc.Benefits {
-				for _, id := range benefitIDs {
-					if benefit.Id == id {
-						match = true
-						break
-					}
-				}
-				if match {
-					break
-				}
-			}
-			if !match {
-				continue
-			}
-		}
-
-		if len(benefitIDs) > 0 {
-			match := false
-			for _, benefit := range acc.Benefits {
-				for _, id := range benefitIDs {
-					if benefit.Id == id {
-						match = true
-						break
-					}
-				}
-				if match {
-					break
-				}
-			}
-			if !match {
-				continue
-			}
-		}
-
-		// Kiểm tra trạng thái từ `statuses` để loại bỏ các accommodation có ID trùng
-		if _, exists := statusMap[acc.ID]; exists {
+		if !isMatch(acc, typeFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter, benefitIDs, statusMap) {
 			continue
 		}
-
 		filteredAccommodations = append(filteredAccommodations, acc)
 	}
 
@@ -987,6 +975,21 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		filteredAccommodations = []models.Accommodation{}
 		for _, scoredAcc := range scoredAccommodations {
 			filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
+		}
+	}
+
+	if nameFilter != "" {
+		decodedNameFilter, _ := url.QueryUnescape(nameFilter)
+
+		// Tìm kiếm chuỗi gần đúng
+		closest := cmName.Closest(normalizeInput(decodedNameFilter))
+
+		// Lọc các accommodation có tên gần đúng với nameFilter
+		filteredAccommodations = []models.Accommodation{}
+		for _, acc := range filteredAccommodations {
+			if normalizeInput(acc.Name) == closest {
+				filteredAccommodations = append(filteredAccommodations, acc)
+			}
 		}
 	}
 
@@ -1046,7 +1049,6 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			"limit": limit,
 			"total": total,
 		},
-		"test": statuses,
 	})
 }
 
