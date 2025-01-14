@@ -470,7 +470,7 @@ func normalizeInput(input string) string {
 
 // Tạo đối tượng closestmatch cho danh sách từ khóa
 func createMatcher(keywords []string) *closestmatch.ClosestMatch {
-	return closestmatch.New(keywords, []int{2, 3, 4})
+	return closestmatch.New(keywords, []int{3, 4, 5})
 }
 
 // Tính độ tương đồng giữa hai chuỗi
