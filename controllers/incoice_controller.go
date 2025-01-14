@@ -417,6 +417,8 @@ func UpdatePaymentStatus(c *gin.Context) {
 	currentTime := time.Now()
 	invoice.PaymentDate = &currentTime
 	invoice.Status = 1
+	invoice.RemainingAmount = 0
+	invoice.PaidAmount = invoice.TotalAmount
 
 	if err := config.DB.Save(&invoice).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái thanh toán"})
