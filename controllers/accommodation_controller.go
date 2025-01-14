@@ -700,11 +700,11 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	benefitFilterRaw := c.Query("benefitId")
 	numFilter := c.Query("num")
 	statusFilter := c.Query("status")
-	nameFilter := c.Query("name")
+	// nameFilter := c.Query("name")
 	numBedFilter := c.Query("numBed")
 	numToletFilter := c.Query("numTolet")
 	peopleFilter := c.Query("people")
-	searchQuery := c.Query("search")
+	// searchQuery := c.Query("search")
 
 	fromDateStr := c.Query("fromDate")
 	toDateStr := c.Query("toDate")
@@ -837,10 +837,10 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 	}
 
-	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
-	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
-	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
-	cmName := createMatcher(prepareNameAccommodations(allAccommodations))
+	// cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
+	// cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
+	// cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
+	// cmName := createMatcher(prepareNameAccommodations(allAccommodations))
 
 	// Áp dụng filter trên dữ liệu từ Redis
 	filteredAccommodations := make([]models.Accommodation, 0)
@@ -882,21 +882,21 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 				continue
 			}
 		}
-		if nameFilter != "" {
-			decodedNameFilter, err := url.QueryUnescape(nameFilter)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu tên cơ sở không hợp lệ"})
-				return
-			}
+		// if nameFilter != "" {
+		// 	decodedNameFilter, err := url.QueryUnescape(nameFilter)
+		// 	if err != nil {
+		// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu tên cơ sở không hợp lệ"})
+		// 		return
+		// 	}
 
-			// Tìm kiếm chuỗi gần đúng
-			closest := cmName.Closest(normalizeInput(decodedNameFilter))
+		// 	// Tìm kiếm chuỗi gần đúng
+		// 	// closest := cmName.Closest(normalizeInput(decodedNameFilter))
 
-			// So sánh nếu chuỗi gần đúng khớp với name của accommodation
-			if normalizeInput(acc.Name) != closest {
-				continue
-			}
-		}
+		// 	// So sánh nếu chuỗi gần đúng khớp với name của accommodation
+		// 	if normalizeInput(acc.Name) != closest {
+		// 		continue
+		// 	}
+		// }
 
 		if numBedFilter != "" {
 			numBed, _ := strconv.Atoi(numBedFilter)
@@ -944,14 +944,14 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	}
 
 	// Xử lý search query
-	if searchQuery != "" {
+	// if searchQuery != "" {
 
-		scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmDistrict, cmWard, cmName)
-		filteredAccommodations = []models.Accommodation{}
-		for _, scoredAcc := range scoredAccommodations {
-			filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
-		}
-	}
+	// 	scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmDistrict, cmWard, cmName)
+	// 	filteredAccommodations = []models.Accommodation{}
+	// 	for _, scoredAcc := range scoredAccommodations {
+	// 		filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
+	// 	}
+	// }
 
 	//Xếp theo update mới nhất
 	sort.Slice(filteredAccommodations, func(i, j int) bool {
