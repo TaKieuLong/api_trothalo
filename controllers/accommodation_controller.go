@@ -708,22 +708,6 @@ func loadAccommodationsFromDB(allAccommodations *[]models.Accommodation) error {
 		Find(allAccommodations).Error
 }
 
-// Hàm tìm giá phòng thấp nhất cho một accommodation
-func assignLowestRoomPriceToAccommodation(acc *models.Accommodation) error {
-	var lowestPrice int
-	if err := config.DB.Model(&models.Room{}).
-		Where("accommodation_id = ?", acc.ID).
-		Order("price ASC"). // Chọn giá thấp nhất
-		Pluck("price", &lowestPrice).Error; err != nil {
-		return fmt.Errorf("lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
-	}
-
-	// Nếu có phòng và giá hợp lệ, cập nhật giá thấp nhất cho accommodation
-	if lowestPrice > 0 {
-		acc.Price = lowestPrice
-	}
-	return nil
-}
 func GetAllAccommodationsForUser(c *gin.Context) {
 	// Các tham số filter
 	typeFilter := c.Query("type")
@@ -861,10 +845,26 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	//gán giá trị phòng thấp nhất cho dạng hotel
 	for _, acc := range allAccommodations {
 		if acc.Type == 0 {
-			if err := assignLowestRoomPriceToAccommodation(&acc); err != nil {
-				log.Printf("Lỗi khi gán giá phòng cho accommodation %d: %v", acc.ID, err)
+			var lowestPrice int
+			if err := config.DB.Model(&models.Room{}).
+				Where("accommodation_id = ?", acc.ID).
+				Order("price DESC").
+				Pluck("price", &lowestPrice).Error; err != nil {
+				log.Printf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
 				continue
 			}
+
+			// Nếu có phòng, cập nhật giá thấp nhất cho accommodation
+			if lowestPrice > 0 {
+				acc.Price = lowestPrice
+				for i := range allAccommodations {
+					if allAccommodations[i].ID == acc.ID {
+						allAccommodations[i].Price = lowestPrice
+						break
+					}
+				}
+			}
+
 		}
 	}
 
