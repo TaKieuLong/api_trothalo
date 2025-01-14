@@ -33,6 +33,7 @@ type InvoiceResponse struct {
 
 type InvoiceUserResponse struct {
 	ID          uint   `json:"id"`
+	Name        string `json:"name"`
 	Email       string `json:"email"`
 	PhoneNumber string `json:"phoneNumber"`
 }
@@ -68,6 +69,9 @@ func GetInvoices(c *gin.Context) {
 
 	pageStr := c.DefaultQuery("page", "0")
 	limitStr := c.DefaultQuery("limit", "10")
+	invoiceCode := c.DefaultQuery("invoiceCode", "")
+	fromDateStr := c.DefaultQuery("fromDate", "")
+	toDateStr := c.DefaultQuery("toDate", "")
 
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 0 {
@@ -79,22 +83,38 @@ func GetInvoices(c *gin.Context) {
 		limit = 10
 	}
 
-	redisClient, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to connect to Redis"})
-		return
-	}
-
-	cacheKey := fmt.Sprintf("invoices:all:page=%d:limit=%d", page, limit)
-
-	cachedData, err := redisClient.Get(config.Ctx, cacheKey).Result()
-	if err == nil && cachedData != "" {
-		var cachedResponse gin.H
-		if json.Unmarshal([]byte(cachedData), &cachedResponse) == nil {
-			c.JSON(http.StatusOK, cachedResponse)
+	var fromDate, toDate time.Time
+	if fromDateStr != "" {
+		fromDate, err = time.Parse("2006-01-02", fromDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Invalid fromDate format"})
 			return
 		}
 	}
+	if toDateStr != "" {
+		toDate, err = time.Parse("2006-01-02", toDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Invalid toDate format"})
+			return
+		}
+	}
+
+	// redisClient, err := config.ConnectRedis()
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to connect to Redis"})
+	// 	return
+	// }
+
+	// cacheKey := fmt.Sprintf("invoices:all:page=%d:limit=%d", page, limit)
+
+	// cachedData, err := redisClient.Get(config.Ctx, cacheKey).Result()
+	// if err == nil && cachedData != "" {
+	// 	var cachedResponse gin.H
+	// 	if json.Unmarshal([]byte(cachedData), &cachedResponse) == nil {
+	// 		c.JSON(http.StatusOK, cachedResponse)
+	// 		return
+	// 	}
+	// }
 
 	tx := config.DB.Model(&models.Invoice{})
 	if currentUserRole == 2 {
@@ -127,7 +147,50 @@ func GetInvoices(c *gin.Context) {
 		return
 	}
 
+	if invoiceCode != "" {
+		tx = tx.Where("invoice_code LIKE ?", "%"+invoiceCode+"%")
+	}
+
+	// Điều kiện tìm kiếm theo khoảng thời gian (fromDate và toDate)
+	if !fromDate.IsZero() {
+		tx = tx.Where("created_at >= ?", fromDate)
+	}
+
+	if !toDate.IsZero() {
+		tx = tx.Where("created_at <= ?", toDate)
+	}
+
+	// Fetch additional related data for each invoice
 	for _, invoice := range invoices {
+		var order models.Order
+		if err := config.DB.Where("id = ?", invoice.OrderID).First(&order).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy đơn hàng liên quan!"})
+			return
+		}
+
+		var user models.User
+		var userResponse InvoiceUserResponse
+
+		if order.UserID != nil { // Kiểm tra nếu có UserID
+			if err := config.DB.Where("id = ?", order.UserID).First(&user).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy người dùng liên quan!"})
+				return
+			}
+			userResponse = InvoiceUserResponse{
+				ID:          user.ID,
+				Name:        user.Name,
+				Email:       user.Email,
+				PhoneNumber: user.PhoneNumber,
+			}
+		} else { // Nếu không có UserID, sử dụng thông tin khách (guest)
+			userResponse = InvoiceUserResponse{
+				Name:        order.GuestName,
+				Email:       order.GuestEmail,
+				PhoneNumber: order.GuestPhone,
+			}
+		}
+
+		// Append invoice response with User information
 		invoiceResponses = append(invoiceResponses, InvoiceResponse{
 			ID:              invoice.ID,
 			InvoiceCode:     invoice.InvoiceCode,
@@ -140,6 +203,7 @@ func GetInvoices(c *gin.Context) {
 			CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 			UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
 			AdminID:         invoice.AdminID,
+			User:            userResponse,
 		})
 	}
 
@@ -154,19 +218,19 @@ func GetInvoices(c *gin.Context) {
 		},
 	}
 
-	jsonData, err := json.Marshal(responseData)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error processing data"})
-		return
-	}
+	// jsonData, err := json.Marshal(responseData)
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error processing data"})
+	// 	return
+	// }
 
-	ttl := 10 * time.Minute
+	// ttl := 10 * time.Minute
 
-	err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to save cache"})
-		return
-	}
+	// err = redisClient.Set(config.Ctx, cacheKey, jsonData, ttl).Err()
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Unable to save cache"})
+	// 	return
+	// }
 
 	c.JSON(http.StatusOK, responseData)
 }
