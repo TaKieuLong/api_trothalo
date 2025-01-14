@@ -962,32 +962,6 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 	}
 
-	//gán giá trị phòng thấp nhất cho dạng hotel
-	// for _, acc := range allAccommodations {
-	// 	if acc.Type == 0 {
-	// 		var lowestPrice int
-	// 		if err := config.DB.Model(&models.Room{}).
-	// 			Where("accommodation_id = ?", acc.ID).
-	// 			Order("price DESC").
-	// 			Pluck("price", &lowestPrice).Error; err != nil {
-	// 			log.Printf("Lỗi khi lấy giá phòng cho accommodation %d: %v", acc.ID, err)
-	// 			continue
-	// 		}
-
-	// 		// Nếu có phòng, cập nhật giá thấp nhất cho accommodation
-	// 		if lowestPrice > 0 {
-	// 			acc.Price = lowestPrice
-	// 			for i := range allAccommodations {
-	// 				if allAccommodations[i].ID == acc.ID {
-	// 					allAccommodations[i].Price = lowestPrice
-	// 					break
-	// 				}
-	// 			}
-	// 		}
-
-	// 	}
-	// }
-
 	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
 	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
 	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))

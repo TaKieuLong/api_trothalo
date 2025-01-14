@@ -713,18 +713,22 @@ func ChangeOrderStatus(c *gin.Context) {
 		return
 	}
 
-	//Xóa redis
 	rdb, redisErr := config.ConnectRedis()
 	if redisErr == nil {
+		// Xóa tất cả các key con của "invoices"
+		err := DeleteKeysByPattern(config.Ctx, rdb, "invoices:*")
+		if err != nil {
+			fmt.Printf("Lỗi khi xóa các key con của invoices: %v\n", err)
+		}
+
+		// Xóa các key khác
 		cacheKey := "orders:all"
 		cacheKeyUser := fmt.Sprintf("orders:all:user:%d", currentUserID)
 
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "invoices:all")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:statuses")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:statuses")
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
-
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Trạng thái đơn hàng đã được cập nhật"})

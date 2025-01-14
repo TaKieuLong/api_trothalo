@@ -638,6 +638,29 @@ func GetAllRoomsUser(c *gin.Context) {
 	})
 }
 
+// cập nhật giá phòng thấp nhất cho price của accommodation
+func UpdateLowestPriceForAccommodation(accommodationID uint) {
+	var lowestPrice int
+	if err := config.DB.Model(&models.Room{}).
+		Where("accommodation_id = ?", accommodationID).
+		Order("price ASC").
+		Limit(1).
+		Pluck("price", &lowestPrice).Error; err != nil {
+		fmt.Printf("Lỗi khi lấy giá phòng thấp nhất cho accommodation ID %d: %v\n", accommodationID, err)
+		return
+	}
+
+	if lowestPrice > 0 {
+		if err := config.DB.Model(&models.Accommodation{}).
+			Where("id = ?", accommodationID).
+			Update("price", lowestPrice).Error; err != nil {
+			fmt.Printf("Lỗi khi cập nhật giá thấp nhất cho accommodation ID %d: %v\n", accommodationID, err)
+		} else {
+			fmt.Printf("Đã cập nhật giá thấp nhất cho accommodation ID %d: %d\n", accommodationID, lowestPrice)
+		}
+	}
+}
+
 func CreateRoom(c *gin.Context) {
 	var newRoom models.Room
 	// Xác thực token
@@ -692,6 +715,8 @@ func CreateRoom(c *gin.Context) {
 		return
 	}
 
+	// Gọi hàm cập nhật giá thấp nhất
+	go UpdateLowestPriceForAccommodation(newRoom.AccommodationID)
 	//Xóa redis
 	rdb, redisErr := config.ConnectRedis()
 	if redisErr == nil {
@@ -864,6 +889,9 @@ func UpdateRoom(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật phòng", "details": err.Error()})
 		return
 	}
+
+	//cập nhật price của accommodation
+	go UpdateLowestPriceForAccommodation(room.AccommodationID)
 
 	//Xóa redis
 	rdb, redisErr := config.ConnectRedis()

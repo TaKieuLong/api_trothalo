@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gin-gonic/gin"
 )
@@ -638,4 +640,17 @@ func SendPay(c *gin.Context) {
 		"code": 1,
 		"mess": "Email đã được gửi thành công",
 	})
+}
+
+func DeleteKeysByPattern(ctx context.Context, rdb *redis.Client, pattern string) error {
+	iter := rdb.Scan(ctx, 0, pattern, 0).Iterator()
+	for iter.Next(ctx) {
+		if err := rdb.Del(ctx, iter.Val()).Err(); err != nil {
+			return fmt.Errorf("lỗi khi xóa key %s: %v", iter.Val(), err)
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return fmt.Errorf("lỗi khi duyệt các key với pattern %s: %v", pattern, err)
+	}
+	return nil
 }
