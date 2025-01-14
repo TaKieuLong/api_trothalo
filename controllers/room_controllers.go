@@ -86,46 +86,27 @@ type RoomDetail struct {
 
 var CacheKey2 = "accommodations:all"
 
-func getRoomStatuses(roomID uint, fromDate, toDate time.Time) ([]models.RoomStatus, error) {
+func getRoomStatuses(fromDate, toDate time.Time) ([]models.RoomStatus, error) {
 	var statuses []models.RoomStatus
 
-	// Redis cache key
-	// cacheKey := "rooms:statuses"
-	// rdb, err := config.ConnectRedis()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
-	// }
+	today := time.Now().Truncate(24 * time.Hour)
 
-	// // Lấy dữ liệu từ Redis
-	// var cachedStatuses []models.RoomStatus
-	// if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &cachedStatuses); err == nil && len(cachedStatuses) > 0 {
-	// 	// Lọc trạng thái phù hợp với roomID và khoảng thời gian
-	// 	for _, status := range cachedStatuses {
-	// 		if status.RoomID == roomID &&
-	// 			status.FromDate.Before(toDate) && status.ToDate.After(fromDate) {
-	// 			statuses = append(statuses, status)
-	// 		}
-	// 	}
-	// 	// Nếu tìm thấy đủ dữ liệu, trả về
-	// 	if len(statuses) > 0 {
-	// 		return statuses, nil
-	// 	}
-	// }
-
-	// Nếu không có dữ liệu trong Redis hoặc không đủ, lấy từ cơ sở dữ liệu
-	err := config.DB.Where("room_id = ? AND status != 0 AND from_date <= ? AND to_date >= ?",
-		roomID, toDate, fromDate).Find(&statuses).Error
+	// Lấy dữ liệu từ cơ sở dữ liệu
+	err := config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
 	if err != nil {
 		return nil, fmt.Errorf("không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
 	}
 
-	// // Lưu lại dữ liệu vào Redis để sử dụng lần sau
-	// if err := services.SetToRedis(config.Ctx, rdb, cacheKey, statuses, 60*time.Minute); err != nil {
-	// 	// Log lỗi nhưng không trả lỗi vì đây không phải lỗi chính
-	// 	fmt.Printf("không thể lưu dữ liệu vào Redis: %v\n", err)
-	// }
+	// Lọc trạng thái phù hợp với khoảng thời gian
+	var filteredStatuses []models.RoomStatus
+	for _, status := range statuses {
+		if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
+			(status.ToDate.Before(toDate) || status.ToDate.Equal(toDate)) {
+			filteredStatuses = append(filteredStatuses, status)
+		}
+	}
 
-	return statuses, nil
+	return filteredStatuses, nil
 }
 
 func GetRoomBookingDates(c *gin.Context) {
@@ -411,6 +392,80 @@ func GetAllRooms(c *gin.Context) {
 	})
 }
 
+func isRoomMatch(room models.Room, typeFilter, statusFilter, nameFilter, accommodationFilter, accommodationIdFilter, numBedFilter, numToletFilter, peopleFilter string, fromDate, toDate time.Time, statusMap map[uint]bool) bool {
+	if _, exists := statusMap[uint(room.RoomId)]; exists {
+		return false
+	}
+
+	// Kiểm tra lọc theo typeFilter
+	if typeFilter != "" {
+		parsedTypeFilter, err := strconv.Atoi(typeFilter)
+		if err == nil && room.Type != uint(parsedTypeFilter) {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo statusFilter
+	if statusFilter != "" {
+		parsedStatus, _ := strconv.Atoi(statusFilter)
+		if room.Status != parsedStatus {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo nameFilter (chuỗi gần đúng)
+	if nameFilter != "" {
+		decodedNameFilter, _ := url.QueryUnescape(nameFilter)
+		if !strings.Contains(strings.ToLower(room.RoomName), strings.ToLower(decodedNameFilter)) {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo accommodationFilter
+	if accommodationFilter != "" {
+		decodedAccommodationFilter, _ := url.QueryUnescape(accommodationFilter)
+		if !strings.Contains(strings.ToLower(room.Parent.Name), strings.ToLower(decodedAccommodationFilter)) {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo accommodationIdFilter
+	if accommodationIdFilter != "" {
+		parsedAccommodationId, err := strconv.Atoi(accommodationIdFilter)
+		if err == nil {
+			if room.AccommodationID != uint(parsedAccommodationId) && room.Parent.ID != uint(parsedAccommodationId) {
+				return false
+			}
+		}
+	}
+
+	// Kiểm tra lọc theo numBedFilter
+	if numBedFilter != "" {
+		numBed, _ := strconv.Atoi(numBedFilter)
+		if room.NumBed != numBed {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo numToletFilter
+	if numToletFilter != "" {
+		numTolet, _ := strconv.Atoi(numToletFilter)
+		if room.NumTolet != numTolet {
+			return false
+		}
+	}
+
+	// Kiểm tra lọc theo peopleFilter
+	if peopleFilter != "" {
+		people, _ := strconv.Atoi(peopleFilter)
+		if room.People != people {
+			return false
+		}
+	}
+
+	return true
+}
+
 func GetAllRoomsUser(c *gin.Context) {
 	var totalRooms int64
 
@@ -460,6 +515,17 @@ func GetAllRoomsUser(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
 			return
 		}
+	}
+
+	statuses, err := getRoomStatuses(fromDate, toDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+		return
+	}
+
+	statusMap := make(map[uint]bool)
+	for _, status := range statuses {
+		statusMap[status.RoomID] = true
 	}
 
 	offset := page * limit
@@ -515,71 +581,12 @@ func GetAllRoomsUser(c *gin.Context) {
 	}
 
 	// Áp dụng filter trên dữ liệu từ Redis
+
 	filteredRooms := make([]models.Room, 0)
 	for _, room := range allRooms {
-		if typeFilter != "" {
-			parsedTypeFilter, err := strconv.Atoi(typeFilter)
-			if err == nil && room.Type != uint(parsedTypeFilter) {
-				continue
-			}
+		if isRoomMatch(room, typeFilter, statusFilter, nameFilter, accommodationFilter, accommodationIdFilter, numBedFilter, numToletFilter, peopleFilter, fromDate, toDate, statusMap) {
+			filteredRooms = append(filteredRooms, room)
 		}
-
-		if statusFilter != "" {
-			parsedStatus, _ := strconv.Atoi(statusFilter)
-			if room.Status != parsedStatus {
-				continue
-			}
-		}
-		if nameFilter != "" {
-			decodedNameFilter, _ := url.QueryUnescape(nameFilter)
-			if !strings.Contains(strings.ToLower(room.RoomName), strings.ToLower(decodedNameFilter)) {
-				continue
-			}
-		}
-		if accommodationFilter != "" {
-			decodedAccommodationFilter, _ := url.QueryUnescape(accommodationFilter)
-			if !strings.Contains(strings.ToLower(room.Parent.Name), strings.ToLower(decodedAccommodationFilter)) {
-				continue
-			}
-		}
-		if accommodationIdFilter != "" {
-			parsedAccommodationId, err := strconv.Atoi(accommodationIdFilter)
-			if err == nil {
-				if room.AccommodationID != uint(parsedAccommodationId) && room.Parent.ID != uint(parsedAccommodationId) {
-					continue
-				}
-			}
-		}
-		if numBedFilter != "" {
-			numBed, _ := strconv.Atoi(numBedFilter)
-			if room.NumBed != numBed {
-				continue
-			}
-		}
-		if numToletFilter != "" {
-			numTolet, _ := strconv.Atoi(numToletFilter)
-			if room.NumTolet != numTolet {
-				continue
-			}
-		}
-		if peopleFilter != "" {
-			people, _ := strconv.Atoi(peopleFilter)
-			if room.People != people {
-				continue
-			}
-		}
-
-		statuses, err := getRoomStatuses(room.RoomId, fromDate, toDate)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
-			return
-		}
-
-		if len(statuses) > 0 {
-			continue
-		}
-
-		filteredRooms = append(filteredRooms, room)
 	}
 
 	// Đếm tổng số phòng sau khi lọc
@@ -628,6 +635,7 @@ func GetAllRoomsUser(c *gin.Context) {
 			"limit": limit,
 			"total": totalRooms,
 		},
+		"test": statuses,
 	})
 }
 
