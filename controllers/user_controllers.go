@@ -117,22 +117,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 	// Kiểm tra cache
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allUsers); err != nil || len(allUsers) == 0 {
 		// Nếu không có dữ liệu trong cache, truy vấn từ DB
-		query := u.DB.Preload("Banks").Preload("Children").
-			Where("name LIKE ? OR email LIKE ? OR phone_number LIKE ?", "%"+name+"%", "%"+name+"%", "%"+name+"%")
-
-		if roleStr != "" {
-			userRole, err := strconv.Atoi(roleStr)
-			if err == nil {
-				query = query.Where("role = ?", userRole)
-			}
-		}
-
-		if statusStr != "" {
-			status, err := strconv.Atoi(statusStr)
-			if err == nil {
-				query = query.Where("status = ?", status)
-			}
-		}
+		query := u.DB.Preload("Banks").Preload("Children")
 
 		if currentUserRole == 3 {
 			var adminID int
@@ -157,9 +142,36 @@ func (u UserController) GetUsers(c *gin.Context) {
 		}
 	}
 
+	var filteredUsers []models.User
+	for _, user := range allUsers {
+		// Lọc theo status
+		if statusStr != "" {
+			status, _ := strconv.Atoi(statusStr)
+			if user.Status != status {
+				continue
+			}
+		}
+
+		// Lọc theo name
+		if name != "" && !strings.Contains(strings.ToLower(user.Name), strings.ToLower(name)) &&
+			!strings.Contains(strings.ToLower(user.PhoneNumber), strings.ToLower(name)) &&
+			!strings.Contains(strings.ToLower(user.Email), strings.ToLower(name)) {
+			continue
+		}
+
+		// Lọc theo role
+		if roleStr != "" {
+			role, _ := strconv.Atoi(roleStr)
+			if user.Role != role {
+				continue
+			}
+		}
+
+		filteredUsers = append(filteredUsers, user)
+	}
 	// Lọc và chuẩn bị response
 	var userResponses []UserResponse
-	for _, user := range allUsers {
+	for _, user := range filteredUsers {
 
 		if currentUserRole == 1 && user.Role == 3 {
 			continue
