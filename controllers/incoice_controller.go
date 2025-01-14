@@ -26,7 +26,7 @@ type InvoiceResponse struct {
 	TotalAmount     float64             `json:"totalAmount"`
 	PaidAmount      float64             `json:"paidAmount"`
 	RemainingAmount float64             `json:"remainingAmount"`
-	Status          uint                `json:"status"`
+	Status          int                 `json:"status"`
 	PaymentDate     *string             `json:"paymentDate,omitempty"`
 	CreatedAt       string              `json:"createdAt"`
 	UpdatedAt       string              `json:"updatedAt"`
@@ -164,13 +164,8 @@ func GetInvoices(c *gin.Context) {
 			}
 		}
 		if statusFilter != "" {
-			parsedStatusFilter, err := strconv.ParseUint(statusFilter, 10, 32) // Parse thành uint
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Invalid status filter"})
-				return
-			}
-
-			if uint(invoice.Status) != uint(parsedStatusFilter) { // So sánh với giá trị uint
+			status, _ := strconv.Atoi(statusFilter)
+			if invoice.Status != status {
 				continue
 			}
 		}
