@@ -573,22 +573,6 @@ func parseAccommodationType(query string) (int, int) {
 	return -1, -1
 }
 
-// Tạo danh sách tên khách sạn
-func prepareNameAccommodations(accommodations []models.Accommodation) []string {
-	uniqueValues := make(map[string]bool)
-	for _, acc := range accommodations {
-		value := acc.Name
-		if value != "" {
-			uniqueValues[normalizeInput(value)] = true
-		}
-	}
-	uniqueList := make([]string, 0, len(uniqueValues))
-	for val := range uniqueValues {
-		uniqueList = append(uniqueList, val)
-	}
-	return uniqueList
-}
-
 // Tạo danh sách các giá trị duy nhất từ cơ sở dữ liệu cho closestmatch
 func prepareUniqueList(accommodations []models.Accommodation, field string) []string {
 	uniqueValues := make(map[string]bool)
@@ -614,27 +598,24 @@ func prepareUniqueList(accommodations []models.Accommodation, field string) []st
 }
 
 // Tính điểm phù hợp cho accommodation
-func calculateScore(query string, acc models.Accommodation, cmProvince, cmDistrict, cmWard, cmName *closestmatch.ClosestMatch) int {
+func calculateScore(query string, acc models.Accommodation, cmProvince, cmWard *closestmatch.ClosestMatch) int {
 	normalizedQuery := normalizeInput(query)
 	accType, rating := parseAccommodationType(normalizedQuery)
 	score := 0
 
-	if cmName.Closest(normalizedQuery) == normalizeInput(acc.Name) {
-		score += 30
-	}
 	if accType != -1 && accType == acc.Type {
 		score += 20
 	}
 	if rating != -1 && acc.Num == rating {
 		score += 15
 	}
-	score += calculateLocationScore(normalizedQuery, acc, cmProvince, cmDistrict, cmWard)
+	score += calculateLocationScore(normalizedQuery, acc, cmProvince, cmWard)
 	score += calculateBenefitScore(normalizedQuery, acc.Benefits)
 
 	return score
 }
 
-func calculateLocationScore(query string, acc models.Accommodation, cmProvince, cmDistrict, cmWard *closestmatch.ClosestMatch) int {
+func calculateLocationScore(query string, acc models.Accommodation, cmProvince, cmWard *closestmatch.ClosestMatch) int {
 	score := 0
 	if cmProvince.Closest(query) == normalizeInput(acc.Province) {
 		score += 13
@@ -665,7 +646,7 @@ func calculateBenefitScore(query string, benefits []models.Benefit) int {
 func filterAndScoreAccommodations(
 	query string,
 	accommodations []models.Accommodation,
-	cmProvince, cmDistrict, cmWard, cmName *closestmatch.ClosestMatch,
+	cmProvince, cmWard *closestmatch.ClosestMatch,
 ) []ScoredAccommodation {
 	var filteredAccommodations []ScoredAccommodation
 	scoreCh := make(chan ScoredAccommodation, len(accommodations))
@@ -675,7 +656,7 @@ func filterAndScoreAccommodations(
 		wg.Add(1)
 		go func(acc models.Accommodation) {
 			defer wg.Done()
-			score := calculateScore(query, acc, cmProvince, cmDistrict, cmWard, cmName)
+			score := calculateScore(query, acc, cmProvince, cmWard)
 			if score > 0 {
 				scoreCh <- ScoredAccommodation{
 					Accommodation: acc,
@@ -958,9 +939,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	}
 
 	cmProvince := createMatcher(prepareUniqueList(allAccommodations, "province"))
-	cmDistrict := createMatcher(prepareUniqueList(allAccommodations, "district"))
 	cmWard := createMatcher(prepareUniqueList(allAccommodations, "ward"))
-	cmName := createMatcher(prepareNameAccommodations(allAccommodations))
 
 	// Áp dụng filter trên dữ liệu từ Redis
 
@@ -975,7 +954,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	// Xử lý search query
 	if searchQuery != "" {
 
-		scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmDistrict, cmWard, cmName)
+		scoredAccommodations := filterAndScoreAccommodations(searchQuery, filteredAccommodations, cmProvince, cmWard)
 		filteredAccommodations = []models.Accommodation{}
 		for _, scoredAcc := range scoredAccommodations {
 			filteredAccommodations = append(filteredAccommodations, scoredAcc.Accommodation)
