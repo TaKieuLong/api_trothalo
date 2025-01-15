@@ -498,7 +498,7 @@ func normalizeInput(input string) string {
 
 // Tạo đối tượng closestmatch cho danh sách từ khóa
 func createMatcher(keywords []string) *closestmatch.ClosestMatch {
-	return closestmatch.New(keywords, []int{3, 4, 5})
+	return closestmatch.New(keywords, []int{2, 3})
 }
 
 // Tính độ tương đồng giữa hai chuỗi
@@ -598,8 +598,6 @@ func prepareUniqueList(accommodations []models.Accommodation, field string) []st
 		switch field {
 		case "province":
 			value = acc.Province
-		case "district":
-			value = acc.District
 		case "ward":
 			value = acc.Ward
 		}
@@ -640,9 +638,6 @@ func calculateLocationScore(query string, acc models.Accommodation, cmProvince, 
 	score := 0
 	if cmProvince.Closest(query) == normalizeInput(acc.Province) {
 		score += 13
-	}
-	if cmDistrict.Closest(query) == normalizeInput(acc.District) {
-		score += 8
 	}
 	if cmWard.Closest(query) == normalizeInput(acc.Ward) {
 		score += 1
