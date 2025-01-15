@@ -144,7 +144,7 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 	rdb, err := config.ConnectRedis()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-		return nil, fmt.Errorf("Không thể kết nối Redis: %v", err)
+		return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
 	}
 
 	// Thử lấy dữ liệu từ Redis
@@ -164,7 +164,7 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 	today := time.Now().Truncate(24 * time.Hour)
 	err = config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
 	if err != nil {
-		return nil, fmt.Errorf("Không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
+		return nil, fmt.Errorf("không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
 	}
 
 	// Lưu dữ liệu vào Redis

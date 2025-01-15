@@ -87,17 +87,47 @@ type RoomDetail struct {
 var CacheKey2 = "accommodations:all"
 
 func getRoomStatuses(fromDate, toDate time.Time) ([]models.RoomStatus, error) {
-	var statuses []models.RoomStatus
+	var (
+		statuses         []models.RoomStatus
+		filteredStatuses []models.RoomStatus
+	)
 
+	// Tạo cache key
+	cacheKey := "rooms:statuses"
+
+	// Kết nối Redis
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
+	}
+
+	// Thử lấy dữ liệu từ Redis
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &statuses); err == nil && len(statuses) > 0 {
+		// Lọc dữ liệu theo ngày
+		filteredStatuses = filterRoomStatusesByDate(statuses, fromDate, toDate)
+		return filteredStatuses, nil
+	}
+
+	// Nếu không có trong Redis, truy vấn từ cơ sở dữ liệu
 	today := time.Now().Truncate(24 * time.Hour)
-
-	// Lấy dữ liệu từ cơ sở dữ liệu
-	err := config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
+	err = config.DB.Where("status != 0 AND to_date >= ?", today).Find(&statuses).Error
 	if err != nil {
 		return nil, fmt.Errorf("không thể lấy dữ liệu từ cơ sở dữ liệu: %v", err)
 	}
 
-	// Lọc trạng thái phù hợp với khoảng thời gian
+	// Lưu dữ liệu vào Redis
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, statuses, 60*time.Minute); err != nil {
+		log.Printf("Lỗi khi lưu dữ liệu vào Redis: %v", err)
+	}
+
+	// Lọc dữ liệu theo ngày
+	filteredStatuses = filterRoomStatusesByDate(statuses, fromDate, toDate)
+
+	return filteredStatuses, nil
+}
+
+// Hàm phụ để lọc danh sách trạng thái theo khoảng thời gian
+func filterRoomStatusesByDate(statuses []models.RoomStatus, fromDate, toDate time.Time) []models.RoomStatus {
 	var filteredStatuses []models.RoomStatus
 	for _, status := range statuses {
 		if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
@@ -105,8 +135,7 @@ func getRoomStatuses(fromDate, toDate time.Time) ([]models.RoomStatus, error) {
 			filteredStatuses = append(filteredStatuses, status)
 		}
 	}
-
-	return filteredStatuses, nil
+	return filteredStatuses
 }
 
 func GetRoomBookingDates(c *gin.Context) {
