@@ -302,6 +302,8 @@ func CreateUser(input models.User) (models.User, error) {
 		Role:          input.Role,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
+		Name:          input.Name,
+		Amount:        input.Amount,
 	}
 
 	result := config.DB.Create(&user)

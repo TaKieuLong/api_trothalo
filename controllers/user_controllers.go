@@ -31,7 +31,7 @@ func NewUserController(mySQL *gorm.DB, redisCli *redis.Client) UserController {
 }
 
 type CreateUserRequest struct {
-	Name          string `json:"name" `
+	Name          string `json:"name"`
 	Email         string `json:"email" binding:"required,email"`
 	Password      string `json:"password" binding:"required"`
 	PhoneNumber   string `json:"phoneNumber" binding:"required"`
@@ -365,7 +365,7 @@ func (u *UserController) CreateUser(c *gin.Context) {
 
 		c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo người dùng thành công", "data": user})
 	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Vai trò không hợp lệ"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Vai trò không hợp lệ", "fake": req})
 		return
 	}
 }
@@ -597,6 +597,71 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		"data": gin.H{
 			"userId": user.ID,
 			"amount": user.Amount,
+		},
+	})
+}
+
+func (u UserController) UpdateUserAccommodation(c *gin.Context) {
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, err := GetIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	var req struct {
+		UserID          uint `json:"userId"`
+		AccommodationID uint `json:"accommodationId"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
+		return
+	}
+
+	var count int64
+	if err := config.DB.Model(&models.Accommodation{}).
+		Where("id = ? AND user_id = ?", req.AccommodationID, currentUserID).
+		Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi kiểm tra quyền sở hữu"})
+		return
+	}
+
+	if count == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Bạn không sở hữu lưu trú này"})
+		return
+	}
+
+	user.AccommodationID = &req.AccommodationID
+	if err := config.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật địa điểm điểm danh"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Phân quyền thành công",
+		"data": gin.H{
+			"userId":          user.ID,
+			"accommodationId": user.AccommodationID,
 		},
 	})
 }
