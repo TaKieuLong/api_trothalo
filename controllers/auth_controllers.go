@@ -54,6 +54,7 @@ type UserResponse struct {
 	AdminId      *uint          `json:"adminId,omitempty"`
 	Gender       int            `json:"gender"`
 	DateOfBirth  string         `json:"dateOfBirth"`
+	Amount       int64          `json:"amount"`
 }
 
 type UserLoginResponse struct {

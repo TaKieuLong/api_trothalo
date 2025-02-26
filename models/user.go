@@ -23,4 +23,5 @@ type User struct {
 	Banks         []Bank    `json:"banks" gorm:"foreignKey:UserId"`
 	Children      []User    `gorm:"foreignKey:AdminId" json:"children,omitempty"`
 	AdminId       *uint     `json:"adminId,omitempty"`
+	Amount        int64     `gorm:"default:0" json:"amount"`
 }

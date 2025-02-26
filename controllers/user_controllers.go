@@ -52,6 +52,11 @@ type StausUser struct {
 	Id     uint `json:"id" binding:"required"`
 }
 
+type UpdateBalanceRequest struct {
+	UserID uint  `json:"userId" binding:"required"`
+	Amount int64 `json:"amount" binding:"required"`
+}
+
 // GetUsers godoc
 // @Summary Lấy danh sách người dùng
 // @Description Lấy tất cả người dùng cùng với thông tin ngân hàng và con cái của họ.
@@ -108,8 +113,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 	// Kết nối Redis
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-		return
+		log.Printf("Không thể kết nối Redis: %v", err)
 	}
 
 	var allUsers []models.User
@@ -219,6 +223,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 				UserStatus:   child.Status,
 				UpdatedAt:    child.UpdatedAt,
 				CreatedAt:    child.CreatedAt,
+				Amount:       child.Amount,
 			})
 		}
 
@@ -236,6 +241,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 			UserStatus:   user.Status,
 			Children:     childrenResponses,
 			AdminId:      user.AdminId,
+			Amount:       user.Amount,
 		})
 	}
 
@@ -613,4 +619,36 @@ func (u UserController) ChangeUserStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái người dùng thành công", "data": user})
+}
+
+func (u UserController) UpdateUserBalance(c *gin.Context) {
+	var req UpdateBalanceRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var user models.User
+
+	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	user.Amount += req.Amount
+
+	if err := config.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật số dư"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Cập nhật số dư thành công",
+		"data": gin.H{
+			"userId": user.ID,
+			"amount": user.Amount,
+		},
+	})
 }
