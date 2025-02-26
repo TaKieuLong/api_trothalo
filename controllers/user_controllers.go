@@ -31,12 +31,14 @@ func NewUserController(mySQL *gorm.DB, redisCli *redis.Client) UserController {
 }
 
 type CreateUserRequest struct {
+	Name          string `json:"name" `
 	Email         string `json:"email" binding:"required,email"`
 	Password      string `json:"password" binding:"required"`
 	PhoneNumber   string `json:"phoneNumber" binding:"required"`
 	Role          int    `json:"role"`
 	BankId        int    `json:"bankId"`
 	AccountNumber string `json:"accountNumber"`
+	Amount        int64  `json:"amount"`
 }
 
 type UpdateUser struct {
@@ -52,18 +54,11 @@ type StausUser struct {
 	Id     uint `json:"id" binding:"required"`
 }
 
-// GetUsers godoc
-// @Summary Lấy danh sách người dùng
-// @Description Lấy tất cả người dùng cùng với thông tin ngân hàng và con cái của họ.
-// @Tags users
-// @Produce json
-// @Success 200 {object} gin.H {"code": 1, "mess": "Lấy danh sách người dùng thành công", "data": []UserResponse{}}
-// @Failure 500 {object} gin.H {"code": 0, "mess": "Thông báo lỗi"}
-// @Router /users [get]
-// @Description Get a list of all users
-// @Produce json
-// @Success 200 {array} models.User
-// @Router /users [get]
+type UpdateBalanceRequest struct {
+	UserID uint  `json:"userId" binding:"required"`
+	Amount int64 `json:"amount" binding:"required"`
+}
+
 func (u UserController) GetUsers(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -108,8 +103,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 	// Kết nối Redis
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-		return
+		log.Printf("Không thể kết nối Redis: %v", err)
 	}
 
 	var allUsers []models.User
@@ -219,6 +213,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 				UserStatus:   child.Status,
 				UpdatedAt:    child.UpdatedAt,
 				CreatedAt:    child.CreatedAt,
+				Amount:       child.Amount,
 			})
 		}
 
@@ -236,6 +231,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 			UserStatus:   user.Status,
 			Children:     childrenResponses,
 			AdminId:      user.AdminId,
+			Amount:       user.Amount,
 		})
 	}
 
@@ -264,18 +260,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 	})
 }
 
-// CreateUser godoc
-// @Summary Tạo người dùng mới
-// @Description Tạo một người dùng mới và thông tin ngân hàng nếu có.
-// @Tags users
-// @Accept json
-// @Produce json
-// @Param createUserRequest body CreateUserRequest true "Thông tin người dùng cần tạo"
-// @Success 201 {object} gin.H {"code": 1, "mess": "Tạo người dùng thành công", "data": models.User}
-// @Failure 400 {object} gin.H {"code": 0, "mess": "Thông báo lỗi"}
-// @Failure 500 {object} gin.H {"code": 0, "mess": "Không thể tạo ngân hàng"}
-// @Router /users/create [post]
-func (u UserController) CreateUser(c *gin.Context) {
+func (u *UserController) CreateUser(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
@@ -295,12 +280,25 @@ func (u UserController) CreateUser(c *gin.Context) {
 		return
 	}
 
-	var user models.User
+	if req.Role == 1 || req.Role == 2 || req.Role == 3 {
+		if req.Role == 3 {
+			var admin models.User
+			if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy admin với ID: " + fmt.Sprint(currentUserID)})
+				return
+			}
+		}
 
-	if req.Role == 1 || req.Role == 2 {
+		//skip validate stk
+		// var bankFake models.BankFake
+		// if err := u.DB.Where("id = ? AND account_numbers::jsonb @> ?", req.BankId, fmt.Sprintf(`["%s"]`, req.AccountNumber)).First(&bankFake).Error; err != nil {
+		// 	c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không có số tài khoản phù hợp"})
+		// 	return
+		// }
+
 		var bankFake models.BankFake
-		if err := u.DB.Where("id = ? AND account_numbers::jsonb @> ?", req.BankId, fmt.Sprintf(`["%s"]`, req.AccountNumber)).First(&bankFake).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không có số tài khoản phù hợp"})
+		if err := u.DB.Where("id = ?", req.BankId).First(&bankFake).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy ngân hàng giả"})
 			return
 		}
 
@@ -315,9 +313,11 @@ func (u UserController) CreateUser(c *gin.Context) {
 			Password:    req.Password,
 			PhoneNumber: req.PhoneNumber,
 			Role:        req.Role,
+			Name:        req.Name,
+			Amount:      req.Amount,
 		}
 
-		user, err = services.CreateUser(userValues)
+		user, err := services.CreateUser(userValues)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
 			return
@@ -336,63 +336,40 @@ func (u UserController) CreateUser(c *gin.Context) {
 		}
 
 		user.Banks = append(user.Banks, bank)
-
 		if err := u.DB.Save(&user).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật thông tin người dùng: " + err.Error()})
 			return
 		}
-	} else if req.Role == 3 {
-		var admin models.User
-		if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy admin với ID: " + fmt.Sprint(currentUserID)})
-			return
+
+		if req.Role == 3 {
+			var admin models.User
+			if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy admin với ID: " + fmt.Sprint(currentUserID)})
+				return
+			}
+
+			admin.Children = append(admin.Children, user)
+			if err := u.DB.Save(&admin).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật thông tin admin: " + err.Error()})
+				return
+			}
 		}
 
-		userValues := models.User{
-			Email:       req.Email,
-			Password:    req.Password,
-			PhoneNumber: req.PhoneNumber,
-			Role:        req.Role,
+		rdb, redisErr := config.ConnectRedis()
+		if redisErr == nil {
+			switch req.Role {
+			case 1, 2, 3:
+				_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
+			}
 		}
 
-		user, err = services.CreateUser(userValues)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
-			return
-		}
-
-		admin.Children = append(admin.Children, user)
-
-		if err := u.DB.Save(&admin).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật thông tin admin: " + err.Error()})
-			return
-		}
+		c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo người dùng thành công", "data": user})
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Vai trò không hợp lệ"})
 		return
 	}
-
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		switch req.Role {
-		case 1, 2:
-			_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
-		case 3:
-			adminCacheKey := fmt.Sprintf("users:role_3:admin_%d", currentUserID)
-			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
-		}
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo người dùng thành công", "data": user})
 }
 
-// @Summary Get a user by ID
-// @Description Get a specific user by ID
-// @Produce json
-// @Param id path int true "User ID"
-// @Success 200 {object} models.User
-// @Router /users/{id} [get]
 func (u UserController) GetUserByID(c *gin.Context) {
 	var user models.User
 	id := c.Param("id")
@@ -426,17 +403,6 @@ func (u UserController) GetUserByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy người dùng thành công", "data": userResponse})
 }
 
-// UpdateUser godoc
-// @Summary Cập nhật thông tin người dùng
-// @Description Cập nhật thông tin của người dùng dựa trên ID của người quản lý.
-// @Tags users
-// @Accept json
-// @Produce json
-// @Param updateUser body UpdateUser true "Thông tin người dùng cần cập nhật"
-// @Success 200 {object} gin.H {"code": 1, "mess": "Cập nhật người dùng thành công", "data": UserResponse}
-// @Failure 400 {object} gin.H {"code": 0, "mess": "Thông báo lỗi"}
-// @Failure 404 {object} gin.H {"code": 0, "mess": "Tài khoản admin không tồn tại"}
-// @Router /users/update [put]
 func (u UserController) UpdateUser(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -525,18 +491,6 @@ func (u UserController) UpdateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật người dùng thành công", "data": userResponse})
 }
 
-// ChangeUserStatus godoc
-// @Summary Thay đổi trạng thái người dùng
-// @Description Thay đổi trạng thái của một người dùng cụ thể dựa trên ID của người quản lý.
-// @Tags users
-// @Accept json
-// @Produce json
-// @Param statusRequest body StausUser true "Thông tin trạng thái người dùng"
-// @Success 200 {object} gin.H {"code": 1, "mess": "Thay đổi trạng thái người dùng thành công", "data": models.User}
-// @Failure 400 {object} gin.H {"code": 0, "mess": "Thông báo lỗi"}
-// @Failure 404 {object} gin.H {"code": 0, "mess": "Tài khoản admin không tồn tại"}
-// @Failure 403 {object} gin.H {"code": 0, "mess": "Tài khoản này không có quyền cập nhật trạng thái"}
-// @Router /users/change-status [post]
 func (u UserController) ChangeUserStatus(c *gin.Context) {
 
 	authHeader := c.GetHeader("Authorization")
@@ -613,4 +567,36 @@ func (u UserController) ChangeUserStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái người dùng thành công", "data": user})
+}
+
+func (u UserController) UpdateUserBalance(c *gin.Context) {
+	var req UpdateBalanceRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var user models.User
+
+	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	user.Amount += req.Amount
+
+	if err := config.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật số dư"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Cập nhật số dư thành công",
+		"data": gin.H{
+			"userId": user.ID,
+			"amount": user.Amount,
+		},
+	})
 }
