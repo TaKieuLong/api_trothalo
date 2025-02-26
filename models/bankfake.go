@@ -21,39 +21,18 @@ func validateAccountNumber(bankShortName string, accountNumbers json.RawMessage)
 		return fmt.Errorf("định dạng số tài khoản không hợp lệ: %v", err)
 	}
 
+	validBanks := map[string]bool{
+		"SACOMBANK": true, "VIETINBANK": true, "VCB": true, "AGRIBANK": true,
+		"MB": true, "TCB": true, "BIDV": true, "ACB": true, "SCB": true, "VPBANK": true,
+	}
+	if _, exits := validBanks[bankShortName]; !exits {
+		return fmt.Errorf("ngân hàng không hợp lệ: %s", bankShortName)
+	}
+
 	for _, account := range accounts {
 		length := len(account)
-		switch bankShortName {
-		case "SACOMBANK", "VIETINBANK":
-			if length > 12 {
-				return fmt.Errorf("số tài khoản của %s phải có 12 chữ số", bankShortName)
-			}
-		case "VCB", "AGRIBANK":
-			if length < 13 || length > 16 {
-				return fmt.Errorf("số tài khoản của %s phải có 13 chữ số", bankShortName)
-			}
-		case "MB":
-			if length < 9 || length > 13 {
-				return fmt.Errorf("số tài khoản của %s phải có từ 9 đến 13 chữ số", bankShortName)
-			}
-		case "TCB", "BIDV":
-			if length != 14 {
-				return fmt.Errorf("số tài khoản của %s phải có 14 chữ số", bankShortName)
-			}
-		case "ACB":
-			if length != 8 && length != 9 {
-				return fmt.Errorf("số tài khoản của %s phải có 8 hoặc 9 chữ số", bankShortName)
-			}
-		case "SCB":
-			if length != 8 && length != 10 {
-				return fmt.Errorf("số tài khoản của %s phải có 8 hoặc 10 chữ số", bankShortName)
-			}
-		case "VPBANK":
-			if length < 8 || length > 9 {
-				return fmt.Errorf("số tài khoản của %s phải có từ 8 đến 9 chữ số", bankShortName)
-			}
-		default:
-			return fmt.Errorf("không có quy tắc xác thực cho ngân hàng: %s", bankShortName)
+		if length < 8 || length > 17 {
+			return fmt.Errorf("số tài khoản phải có từ 8 đến 17 chữ số")
 		}
 	}
 	return nil
