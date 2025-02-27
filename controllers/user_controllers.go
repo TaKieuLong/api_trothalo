@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"new/config"
 	"sort"
@@ -662,6 +663,88 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 		"data": gin.H{
 			"userId":          user.ID,
 			"accommodationId": user.AccommodationID,
+		},
+	})
+}
+
+func (u UserController) CheckInUser(c *gin.Context) {
+	var req struct {
+		UserID    uint    `json:"userId"`
+		Longitude float64 `json:"longitude"`
+		Latitude  float64 `json:"latitude"`
+	}
+
+	var currentTime = time.Now()
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	if user.AccommodationID == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng chưa có thông tin lưu trú"})
+		return
+	}
+
+	var accommodation models.Accommodation
+	if err := config.DB.First(&accommodation, user.AccommodationID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không tìm thấy thông tin lưu trú"})
+		return
+	}
+
+	const earthRadiusKm = 6371.0
+
+	distance := func(lat1, lon1, lat2, lon2 float64) float64 {
+		lat1Rad, lon1Rad := lat1*(math.Pi/180), lon1*(math.Pi/180)
+		lat2Rad, lon2Rad := lat2*(math.Pi/180), lon2*(math.Pi/180)
+		dLat, dLon := lat2Rad-lat1Rad, lon2Rad-lon1Rad
+
+		a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+		c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+
+		return earthRadiusKm * c
+	}
+
+	d := distance(accommodation.Latitude, accommodation.Longitude, req.Latitude, req.Longitude)
+
+	if d > 1.0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Vị trí không hợp lệ"})
+		return
+	}
+
+	var existingRecord models.CheckInRecord
+	today := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, currentTime.Location())
+
+	if err := config.DB.Where("user_id = ? AND DATE(date) = ?", req.UserID, today).First(&existingRecord).Error; err == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng đã điểm danh hôm nay"})
+		return
+	}
+
+	user.Status = 1
+
+	checkInRecord := models.CheckInRecord{
+		UserID: req.UserID,
+		Date:   currentTime,
+	}
+
+	if err := config.DB.Create(&checkInRecord).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lưu thông tin điểm danh", "err": err})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Điểm danh thành công",
+		"data": gin.H{
+			"userId":      user.ID,
+			"status":      user.Status,
+			"timeCheckIn": currentTime,
 		},
 	})
 }
