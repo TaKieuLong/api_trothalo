@@ -39,10 +39,8 @@ func GetUserAcc(c *gin.Context) {
 		return
 	}
 
-	// Tạo cache key dựa trên vai trò và user_id
 	cacheKey := fmt.Sprintf("accommodations:admin:%d", currentUserID)
 
-	// Kết nối Redis (bỏ qua lỗi nếu không kết nối được)
 	rdb, err := config.ConnectRedis()
 	if err != nil {
 		log.Printf("Không thể kết nối Redis: %v", err)
@@ -50,30 +48,80 @@ func GetUserAcc(c *gin.Context) {
 
 	var allAccommodations []models.Accommodation
 
-	// Lấy dữ liệu từ Redis (nếu kết nối Redis thành công)
+	tx := config.DB.Model(&models.Accommodation{}).
+		Preload("Rooms").
+		Preload("Rates").
+		Preload("Benefits").
+		Preload("User").
+		Preload("User.Banks").
+		Where("user_id = ?", currentUserID)
+
+	if err := tx.Find(&allAccommodations).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách chỗ ở"})
+		return
+	}
+
+	accUser := make([]AccommodationDetailResponse, 0)
+	for _, acc := range allAccommodations {
+		user := acc.User
+		// Lấy thông tin ngân hàng nếu có
+		bankShortName := ""
+		accountNumber := ""
+		bankName := ""
+		if len(user.Banks) > 0 {
+			bankShortName = user.Banks[0].BankShortName
+			accountNumber = user.Banks[0].AccountNumber
+			bankName = user.Banks[0].BankName
+		}
+
+		accUser = append(accUser, AccommodationDetailResponse{
+			ID:               acc.ID,
+			Type:             acc.Type,
+			Name:             acc.Name,
+			Address:          acc.Address,
+			CreateAt:         acc.CreateAt,
+			UpdateAt:         acc.UpdateAt,
+			Avatar:           acc.Avatar,
+			ShortDescription: acc.ShortDescription,
+			Status:           acc.Status,
+			Num:              acc.Num,
+			Furniture:        acc.Furniture,
+			People:           acc.People,
+			Price:            acc.Price,
+			NumBed:           acc.NumBed,
+			NumTolet:         acc.NumTolet,
+			Benefits:         acc.Benefits,
+			TimeCheckIn:      acc.TimeCheckIn,
+			TimeCheckOut:     acc.TimeCheckOut,
+			Province:         acc.Province,
+			District:         acc.District,
+			Ward:             acc.Ward,
+			Longitude:        acc.Longitude,
+			Latitude:         acc.Latitude,
+			User: Actor{
+				Name:          user.Name,
+				Email:         user.Email,
+				PhoneNumber:   user.PhoneNumber,
+				BankShortName: bankShortName,
+				AccountNumber: accountNumber,
+				BankName:      bankName,
+			},
+		})
+	}
+
+	if rdb != nil {
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, accUser, 60*time.Minute); err != nil {
+			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
+		}
+	}
+
 	if rdb != nil {
 		if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allAccommodations); err == nil && len(allAccommodations) > 0 {
 			goto RESPONSE
 		}
 	}
 
-	// Lấy dữ liệu từ DB
-	if err := config.DB.Model(&models.Accommodation{}).
-		Where("user_id = ?", currentUserID).
-		Find(&allAccommodations).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách chỗ ở"})
-		return
-	}
-
-	// Lưu dữ liệu vào Redis nếu kết nối thành công
-	if rdb != nil {
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allAccommodations, 60*time.Minute); err != nil {
-			log.Printf("Lỗi khi lưu danh sách chỗ ở vào Redis: %v", err)
-		}
-	}
-
 RESPONSE:
-	// Chuẩn bị response chỉ với ID và Name
 	accommodationsResponse := make([]gin.H, 0)
 	for _, acc := range allAccommodations {
 		accommodationsResponse = append(accommodationsResponse, gin.H{
