@@ -20,6 +20,37 @@ type UpdateBalanceRequest struct {
 	Amount int64 `json:"amount" binding:"required"`
 }
 
+func GetUsersByAdminID(adminID uint) ([]models.User, error) {
+	var users []models.User
+	if err := config.DB.Where("admin_id = ?", adminID).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func GetCheckedInUsers(startDate string, endDate string, users []models.User) ([]models.CheckInRecord, error) {
+	var CheckIn []models.CheckInRecord
+	userIDs := getUserIDs(users)
+
+	if err := config.DB.
+		Table("check_in_records").
+		Where("DATE(check_in_records.date) BETWEEN ? AND ?", startDate, endDate).
+		Where("check_in_records.user_id IN (?)", userIDs).
+		Find(&CheckIn).Error; err != nil {
+		return nil, err
+	}
+
+	return CheckIn, nil
+}
+
+func getUserIDs(users []models.User) []uint {
+	ids := make([]uint, len(users))
+	for i, user := range users {
+		ids[i] = user.ID
+	}
+	return ids
+}
+
 func GetUserAcc(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -313,5 +344,84 @@ func (u UserController) CheckInUser(c *gin.Context) {
 			"status":      user.Status,
 			"timeCheckIn": currentTime,
 		},
+	})
+}
+
+func GetUserCalendar(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	if currentUserRole != 2 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+		return
+	}
+
+	date := c.Query("date")
+
+	if date == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Thiếu tham số date"})
+		return
+	}
+
+	parsedDate, err := time.Parse("01/2006", date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+		return
+	}
+
+	year, month, _ := parsedDate.Date()
+	daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	days := make([]gin.H, 0)
+
+	users, err := GetUsersByAdminID(currentUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+		return
+	}
+
+	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
+	endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
+
+	checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+		return
+	}
+
+	for day := 1; day <= daysInMonth; day++ {
+		dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+		userList := make([]gin.H, 0)
+
+		for _, record := range checkedInUsers {
+			if record.Date.Format("2006-01-02") == dateStr {
+				for _, user := range users {
+					if user.ID == record.UserID {
+						userList = append(userList, gin.H{"id": user.ID, "name": user.Name})
+					}
+				}
+			}
+		}
+
+		days = append(days, gin.H{
+			"date":  dateStr,
+			"users": userList,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":  1,
+		"mess":  "Lấy danh sách ngày thành công",
+		"total": daysInMonth,
+		"data":  days,
 	})
 }
