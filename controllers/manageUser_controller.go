@@ -425,3 +425,155 @@ func GetUserCalendar(c *gin.Context) {
 		"data":  days,
 	})
 }
+
+func CalculateUserSalaryInit(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, err := GetIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	var req struct {
+		UserID uint `json:"userId"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
+		return
+	}
+
+	currentMonth := time.Now().Format("2006-01")
+	startDate := currentMonth + "-01"
+
+	firstDayNextMonth := time.Date(time.Now().Year(), time.Now().Month()+1, 1, 0, 0, 0, 0, time.Now().Location())
+	lastDayCurrentMonth := firstDayNextMonth.Add(-time.Hour * 24)
+	endDate := lastDayCurrentMonth.Format("2006-01-02")
+
+	checkIns, err := GetCheckedInUsers(startDate, endDate, []models.User{user})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh"})
+		return
+	}
+
+	totalDays := lastDayCurrentMonth.Day()
+	attendanceCount := len(checkIns)
+	absenceCount := totalDays - attendanceCount
+
+	amount := int(math.Round(float64(user.Amount)/float64(totalDays)*float64(attendanceCount)/1000) * 1000)
+
+	userSalary := models.UserSalary{
+		UserID:     user.ID,
+		Amount:     amount,
+		Attendance: attendanceCount,
+		Absence:    absenceCount,
+		SalaryDate: time.Now(),
+	}
+
+	if err := config.DB.Save(&userSalary).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật lương"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Tính lương thành công",
+		"data": gin.H{
+			"id":         userSalary.ID,
+			"userId":     user.ID,
+			"amount":     amount,
+			"attendance": attendanceCount,
+			"absence":    absenceCount,
+			"date":       currentMonth,
+		},
+	})
+}
+
+func CalculateUserSalary(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, err := GetIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	var req struct {
+		userSalaryID uint `json:"userSalaryId"`
+		UserID       uint `json:"userId"`
+		Bonus        int  `json:"bonus"`
+		Penalty      int  `json:"penalty"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
+		return
+	}
+
+	baseSalary := user.Amount
+	totalSalary := int(baseSalary) + req.Bonus - req.Penalty
+
+	// Tìm hoặc tạo bản ghi usersalary
+	var userSalary models.UserSalary
+	if err := config.DB.FirstOrCreate(&userSalary, models.UserSalary{UserID: req.UserID}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tìm hoặc tạo bản ghi lương"})
+		return
+	}
+
+	// Cập nhật thông tin lương
+	userSalary.Amount = int(totalSalary)
+	userSalary.Bonus = req.Bonus
+	userSalary.Penalty = req.Penalty
+	userSalary.SalaryDate = time.Now()
+	userSalary.Status = false
+
+	if err := config.DB.Save(&userSalary).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lưu thông tin lương"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Tính lương thành công",
+		"data": gin.H{
+			"userId":      user.ID,
+			"baseSalary":  user.Amount,
+			"bonus":       req.Bonus,
+			"penalty":     req.Penalty,
+			"totalSalary": totalSalary,
+		},
+	})
+}

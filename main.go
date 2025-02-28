@@ -41,6 +41,8 @@ func recreateUserTable() {
 	// 	log.Fatalf("Failed to add column: %v", err)
 	// }
 
+	// config.DB.AutoMigrate(&models.UserSalary{})
+
 	println("abc.")
 }
 
