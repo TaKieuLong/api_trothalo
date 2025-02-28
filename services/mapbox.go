@@ -1,71 +1,65 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/goccy/go-json"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 )
 
-type GeocodingFeature struct {
-	PlaceName string     `json:"place_name"`
-	Center    [2]float64 `json:"center"`
-	Relevance float64    `json:"relevance"`
-}
-type GeocodingResponse struct {
-	Features []GeocodingFeature `json:"features"`
+// GeocodingResponseGoong định nghĩa cấu trúc phản hồi từ Goong
+type GeocodingResponseGoong struct {
+	Results []struct {
+		FormattedAddress string `json:"formatted_address"`
+		Geometry        struct {
+			Location struct {
+				Lat float64 `json:"lat"`
+				Lng float64 `json:"lng"`
+			} `json:"location"`
+		} `json:"geometry"`
+	} `json:"results"`
 }
 
-func GetBestCoordinatesFromResponse(body io.Reader) (float64, float64, error) {
-	var response GeocodingResponse
+// GetBestCoordinatesFromResponseGoong lấy tọa độ từ phản hồi API Goong
+func GetBestCoordinatesFromResponseGoong(body io.Reader) (float64, float64, error) {
+	var response GeocodingResponseGoong
 	if err := json.NewDecoder(body).Decode(&response); err != nil {
 		return 0, 0, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	if len(response.Features) == 0 {
+	if len(response.Results) == 0 {
 		return 0, 0, errors.New("no results found")
 	}
 
-	// Chọn kết quả có relevance cao nhất
-	bestFeature := response.Features[0]
-	for _, feature := range response.Features {
-		if feature.Relevance > bestFeature.Relevance {
-			bestFeature = feature
-		}
-	}
-
-	return bestFeature.Center[0], bestFeature.Center[1], nil
+	bestResult := response.Results[0] // Chọn kết quả đầu tiên
+	lat, lng := bestResult.Geometry.Location.Lat, bestResult.Geometry.Location.Lng
+	return lat, lng, nil
 }
 
-// GetCoordinatesFromAddress gọi API và lấy tọa độ
-func GetCoordinatesFromAddress(address, district, province, ward, mapboxAccessToken string) (float64, float64, error) {
+// GetCoordinatesFromAddress sử dụng API Goong để lấy tọa độ
+func GetCoordinatesFromAddress(address, district, province, ward, goongAPIKey string) (float64, float64, error) {
 	fullAddress := fmt.Sprintf("%s, %s, %s, %s", address, ward, district, province)
 	encodedAddress := url.QueryEscape(fullAddress)
 	log.Println("encodedAddress:", encodedAddress)
+
 	apiURL := fmt.Sprintf(
-		"https://api.mapbox.com/geocoding/v5/mapbox.places/%s.json?access_token=%s&country=VN",
+		"https://rsapi.goong.io/geocode?address=%s&api_key=%s",
 		encodedAddress,
-		mapboxAccessToken,
+		goongAPIKey,
 	)
 
 	resp, err := http.Get(apiURL)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, 0, fmt.Errorf("API returned status %d", resp.StatusCode)
 	}
 
-	// Lấy tọa độ tốt nhất
-	return GetBestCoordinatesFromResponse(resp.Body)
+	return GetBestCoordinatesFromResponseGoong(resp.Body)
 }
