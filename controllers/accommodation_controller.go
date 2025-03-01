@@ -1108,6 +1108,12 @@ func CreateAccommodation(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể mã hóa địa chỉ", "details": err.Error()})
 	}
+	// Kiểm tra xem tọa độ có bị trùng không
+	var existingAccommodation models.Accommodation
+	if err := config.DB.Where("longitude = ? AND latitude = ?", longitude, latitude).First(&existingAccommodation).Error; err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Địa chỉ đã được sử dụng!"})
+		return
+	}
 	newAccommodation.Longitude = longitude
 	newAccommodation.Latitude = latitude
 
