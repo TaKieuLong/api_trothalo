@@ -176,6 +176,14 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		return
 	}
 
+	if req.Amount > 2000000 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không được vượt quá 2.000.000"})
+		return
+	} else if req.Amount < -1000000 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không được nhỏ hơn -1.000.000"})
+		return
+	}
+
 	var user models.User
 
 	if err := config.DB.First(&user, req.UserID).Error; err != nil {
@@ -183,7 +191,15 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+
+	if user.DateCheck.Year() == now.Year() && user.DateCheck.Month() == now.Month() {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Bạn đã cập nhật lương trong tháng này rồi, không thể cập nhật nữa!"})
+		return
+	}
+
 	user.Amount += req.Amount
+	user.DateCheck = now
 
 	if err := config.DB.Save(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật số dư"})
@@ -196,6 +212,7 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		"data": gin.H{
 			"userId": user.ID,
 			"amount": user.Amount,
+			"dateCheck": user.DateCheck,
 		},
 	})
 }

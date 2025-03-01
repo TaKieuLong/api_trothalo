@@ -26,4 +26,5 @@ type User struct {
 	Amount          int64           `gorm:"default:0" json:"amount"`
 	AccommodationID *uint           `json:"accommodation_id"`
 	CheckIns        []CheckInRecord `json:"checkins" gorm:"foreignKey:UserID"`
+	DateCheck       time.Time       `json:"dateCheck"`
 }
