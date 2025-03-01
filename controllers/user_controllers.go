@@ -563,3 +563,44 @@ func (u UserController) ChangeUserStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái người dùng thành công", "data": user})
 }
+
+// Get Detail Receptionist
+func (u UserController) GetReceptionistByID(c *gin.Context) {
+	var user models.User
+	id := c.Param("id")
+
+	if err := u.DB.First(&user, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+	if err := config.DB.Preload("Banks").First(&user, id).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+	var banks []Bank
+	for _, bank := range user.Banks {
+		banks = append(banks, Bank{
+			BankName:      bank.BankName,
+			AccountNumber: bank.AccountNumber,
+			BankShortName: bank.BankShortName,
+		})
+	}
+
+	userResponse := UserResponse{
+		UserID:       user.ID,
+		UserName:     user.Name,
+		UserEmail:    user.Email,
+		UserVerified: user.IsVerified,
+		UserPhone:    user.PhoneNumber,
+		UserRole:     user.Role,
+		UserAvatar:   user.Avatar,
+		UserBanks:    banks,
+		UserStatus:   user.Status,
+		DateOfBirth:  user.DateOfBirth,
+		Amount:       user.Amount,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy thông tin lễ tân thành công", "data": userResponse})
+}
