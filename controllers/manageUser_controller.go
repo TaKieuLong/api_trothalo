@@ -521,10 +521,10 @@ func CalculateUserSalary(c *gin.Context) {
 	}
 
 	var req struct {
-		userSalaryID uint `json:"userSalaryId"`
-		UserID       uint `json:"userId"`
-		Bonus        int  `json:"bonus"`
-		Penalty      int  `json:"penalty"`
+		SalaryID uint `json:"salaryId"`
+		UserID   uint `json:"userId"`
+		Bonus    int  `json:"bonus"`
+		Penalty  int  `json:"penalty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -533,9 +533,18 @@ func CalculateUserSalary(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := config.DB.First(&user, req.UserID).Error; err != nil {
+	if err := config.DB.Preload("Banks").First(&user, req.UserID).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
 		return
+	}
+
+	var banks []Bank
+	for _, bank := range user.Banks {
+		banks = append(banks, Bank{
+			BankName:      bank.BankName,
+			AccountNumber: bank.AccountNumber,
+			BankShortName: bank.BankShortName,
+		})
 	}
 
 	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
@@ -548,17 +557,15 @@ func CalculateUserSalary(c *gin.Context) {
 
 	// Tìm hoặc tạo bản ghi usersalary
 	var userSalary models.UserSalary
-	if err := config.DB.FirstOrCreate(&userSalary, models.UserSalary{UserID: req.UserID}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tìm hoặc tạo bản ghi lương"})
+	if err := config.DB.Where("id = ?", req.SalaryID).First(&userSalary).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Bản ghi lương không tồn tại"})
 		return
 	}
 
 	// Cập nhật thông tin lương
-	userSalary.Amount = int(totalSalary)
+	userSalary.TotalSalary = int(totalSalary)
 	userSalary.Bonus = req.Bonus
 	userSalary.Penalty = req.Penalty
-	userSalary.SalaryDate = time.Now()
-	userSalary.Status = false
 
 	if err := config.DB.Save(&userSalary).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lưu thông tin lương"})
@@ -574,6 +581,65 @@ func CalculateUserSalary(c *gin.Context) {
 			"bonus":       req.Bonus,
 			"penalty":     req.Penalty,
 			"totalSalary": totalSalary,
+			"bank":        banks,
+		},
+	})
+}
+
+func UpdateSalaryStatus(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, err := GetIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	var req struct {
+		SalaryID uint `json:"salaryId"`
+		Status   bool `json:"status"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	var userSalary models.UserSalary
+	if err := config.DB.First(&userSalary, req.SalaryID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Bản ghi lương không tồn tại"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, userSalary.UserID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	if user.AdminId == nil || *user.AdminId != currentUserID {
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền cập nhật trạng thái lương"})
+		return
+	}
+
+	// Cập nhật trạng thái
+	userSalary.Status = req.Status
+	if err := config.DB.Save(&userSalary).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Cập nhật trạng thái thành công",
+		"data": gin.H{
+			"salaryId": req.SalaryID,
+			"status":   req.Status,
 		},
 	})
 }
