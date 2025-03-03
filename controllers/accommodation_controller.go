@@ -1111,7 +1111,9 @@ func CreateAccommodation(c *gin.Context) {
 	// Kiểm tra xem tọa độ có bị trùng không
 	var existingAccommodation models.Accommodation
 	if err := config.DB.Where("longitude = ? AND latitude = ?", longitude, latitude).First(&existingAccommodation).Error; err == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Địa chỉ đã được sử dụng!"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1,
+			"mess":              "Địa chỉ này đã được sử dụng, vui lòng nhập địa chỉ khác.",
+			"needChangeAddress": true})
 		return
 	}
 	newAccommodation.Longitude = longitude
