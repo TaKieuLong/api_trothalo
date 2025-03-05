@@ -848,7 +848,7 @@ func GetUserCheckin(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
-		"mess": "Tính lương thành công",
+		"mess": "Lấy danh sách chấm công thành công!",
 		"data": filteredResponse,
 		"pagination": gin.H{
 			"page":  page,
