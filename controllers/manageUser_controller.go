@@ -878,12 +878,14 @@ func GetUserSalary(c *gin.Context) {
 	for _, u := range users {
 		salary, ok := salaryMap[u.ID]
 		totalSalary, bonus, penalty, status := 0, 0, 0, false
+		var code uint = 0
 
 		if ok {
 			totalSalary = salary.TotalSalary
 			bonus = salary.Bonus
 			penalty = salary.Penalty
 			status = salary.Status
+			code = salary.ID
 		}
 
 		response = append(response, gin.H{
@@ -895,6 +897,7 @@ func GetUserSalary(c *gin.Context) {
 			"bonus":       bonus,
 			"penalty":     penalty,
 			"status":      status,
+			"code":        code,
 		})
 	}
 
