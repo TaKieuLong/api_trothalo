@@ -36,6 +36,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 	v1.POST("/userSalaryInit", middlewares.AuthMiddleware(2), controllers.CalculateUserSalaryInit)
 	v1.POST("/userSalaryCommit", middlewares.AuthMiddleware(2), controllers.CalculateUserSalary)
 	v1.PUT("/userSalaryStatus", middlewares.AuthMiddleware(2), controllers.UpdateSalaryStatus)
+	v1.GET("/userCheckin", middlewares.AuthMiddleware(2), controllers.GetUserCheckin)
 
 	v1.GET("/verify-email", controllers.VerifyEmail)
 	v1.POST("/auth/login", controllers.Login)
