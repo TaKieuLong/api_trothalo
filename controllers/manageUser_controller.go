@@ -869,35 +869,29 @@ func GetUserSalary(c *gin.Context) {
 		return
 	}
 
-	salaryMap := make(map[uint]models.UserSalary)
-	for _, s := range userSalaries {
-		salaryMap[s.UserID] = s
+	userMap := make(map[uint]models.User)
+	for _, u := range users {
+		userMap[u.ID] = u
 	}
 
 	var response []gin.H
-	for _, u := range users {
-		salary, ok := salaryMap[u.ID]
-		totalSalary, bonus, penalty, status := 0, 0, 0, false
-		var code uint = 0
+	for _, s := range userSalaries {
 
-		if ok {
-			totalSalary = salary.TotalSalary
-			bonus = salary.Bonus
-			penalty = salary.Penalty
-			status = salary.Status
-			code = salary.ID
+		userInfo, ok := userMap[s.UserID]
+		if !ok {
+			continue
 		}
 
 		response = append(response, gin.H{
-			"id":          u.ID,
-			"amount":      u.Amount,
-			"name":        u.Name,
-			"phoneNumber": u.PhoneNumber,
-			"totalSalary": totalSalary,
-			"bonus":       bonus,
-			"penalty":     penalty,
-			"status":      status,
-			"code":        code,
+			"id":          s.UserID,
+			"amount":      userInfo.Amount,
+			"name":        userInfo.Name,
+			"phoneNumber": userInfo.PhoneNumber,
+			"totalSalary": s.TotalSalary,
+			"bonus":       s.Bonus,
+			"penalty":     s.Penalty,
+			"status":      s.Status,
+			"code":        s.ID,
 		})
 	}
 
