@@ -729,49 +729,55 @@ func GetUserCheckin(c *gin.Context) {
 	rdb, err := config.ConnectRedis()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		return
 	}
 	cacheKey := fmt.Sprintf("user_checkin:%d", currentUserID)
 
-	var user models.User
-	if err := config.DB.First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
-		return
-	}
-
-	date := c.Query("date")
-	if date == "" {
-		date = time.Now().Format("01/2006")
-	}
-
-	parsedDate, err := time.Parse("01/2006", date)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
-		return
-	}
-	year, month, _ := parsedDate.Date()
-	daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
-
-	users, err := GetUsersByAdminID(currentUserID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
-		return
-	}
-
-	sort.Slice(users, func(i, j int) bool {
-		return users[i].UpdatedAt.After(users[j].UpdatedAt)
-	})
-
-	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
-	endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
-
-	checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
-		return
-	}
-
 	var response []gin.H
+	// Kiểm tra cache trong Redis
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &response); err == nil && len(response) > 0 {
+		// Nếu dữ liệu có trong cache, không cần truy vấn lại DB
+		log.Println("Dữ liệu lấy từ cache")
+	} else {
+		// Nếu không có dữ liệu trong cache, thực hiện truy vấn DB
+		var user models.User
+		if err := config.DB.First(&user, currentUserID).Error; err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+			return
+		}
+
+		date := c.Query("date")
+		if date == "" {
+			date = time.Now().Format("01/2006")
+		}
+
+		parsedDate, err := time.Parse("01/2006", date)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+			return
+		}
+		year, month, _ := parsedDate.Date()
+		daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+
+		users, err := GetUsersByAdminID(currentUserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+			return
+		}
+
+		sort.Slice(users, func(i, j int) bool {
+			return users[i].UpdatedAt.After(users[j].UpdatedAt)
+		})
+
+		startDate := fmt.Sprintf("%04d-%02d-01", year, month)
+		endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
+
+		checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+			return
+		}
+
 		for _, u := range users {
 			checkinCount := 0
 			var checkinDates []time.Time
@@ -794,13 +800,15 @@ func GetUserCheckin(c *gin.Context) {
 			})
 		}
 
+		// Lưu cache vào Redis
+		err = services.SetToRedis(config.Ctx, rdb, cacheKey, response, 30*time.Minute)
+		if err != nil {
+			log.Printf("Lỗi khi lưu dữ liệu vào Redis: %v", err)
+		}
+		log.Println("Dữ liệu đã được lưu vào Redis")
 	}
 
-	// Lưu cache vào Redis
-	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, response, 30*time.Minute); err != nil {
-		log.Printf("Lỗi khi lưu dữ liệu điểm danh vào Redis: %v", err)
-	}
-
+	// Lọc dữ liệu sau khi đã có response
 	nameFilter := c.Query("name")
 	phoneFilter := c.Query("phone")
 	var filteredResponse []gin.H
