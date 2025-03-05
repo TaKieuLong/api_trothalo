@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"  
 	"fmt"
 	"log"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"new/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"  
 )
 
 type UpdateBalanceRequest struct {
@@ -449,7 +451,6 @@ func CalculateUserSalaryInit(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
 		return
 	}
-
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
@@ -460,7 +461,6 @@ func CalculateUserSalaryInit(c *gin.Context) {
 	var req struct {
 		UserID uint `json:"userId"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
 		return
@@ -471,18 +471,19 @@ func CalculateUserSalaryInit(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
 		return
 	}
-
 	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
 		return
 	}
 
+	// Xác định thời gian
 	currentMonth := time.Now().Format("2006-01")
-	startDate := currentMonth + "-01"
+	startOfMonth, _ := time.Parse("2006-01-02", currentMonth+"-01")
+	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
 
-	firstDayNextMonth := time.Date(time.Now().Year(), time.Now().Month()+1, 1, 0, 0, 0, 0, time.Now().Location())
-	lastDayCurrentMonth := firstDayNextMonth.Add(-time.Hour * 24)
-	endDate := lastDayCurrentMonth.Format("2006-01-02")
+	// Lấy dữ liệu điểm danh
+	startDate := currentMonth + "-01"
+	endDate := startOfNextMonth.Add(-time.Hour * 24).Format("2006-01-02")
 
 	checkIns, err := GetCheckedInUsers(startDate, endDate, []models.User{user})
 	if err != nil {
@@ -490,18 +491,31 @@ func CalculateUserSalaryInit(c *gin.Context) {
 		return
 	}
 
-	totalDays := lastDayCurrentMonth.Day()
+	totalDays := startOfNextMonth.Add(-time.Hour * 24).Day()
 	attendanceCount := len(checkIns)
 	absenceCount := totalDays - attendanceCount
-
 	amount := int(math.Round(float64(user.Amount)/float64(totalDays)*float64(attendanceCount)/1000) * 1000)
 
-	userSalary := models.UserSalary{
-		UserID:     user.ID,
-		Amount:     amount,
-		Attendance: attendanceCount,
-		Absence:    absenceCount,
-		SalaryDate: time.Now(),
+	// Kiểm tra hoặc cập nhật lương
+	var userSalary models.UserSalary
+	if err := config.DB.Where("user_id = ? AND salary_date >= ? AND salary_date < ?", user.ID, startOfMonth, startOfNextMonth).First(&userSalary).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			userSalary = models.UserSalary{
+				UserID:     user.ID,
+				Amount:     amount,
+				Attendance: attendanceCount,
+				Absence:    absenceCount,
+				SalaryDate: time.Now(),
+			}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi kiểm tra lương người dùng"})
+			return
+		}
+	} else {
+		userSalary.Amount = amount
+		userSalary.Attendance = attendanceCount
+		userSalary.Absence = absenceCount
+		userSalary.SalaryDate = time.Now()
 	}
 
 	if err := config.DB.Save(&userSalary).Error; err != nil {
@@ -519,6 +533,7 @@ func CalculateUserSalaryInit(c *gin.Context) {
 			"attendance": attendanceCount,
 			"absence":    absenceCount,
 			"date":       currentMonth,
+			"totalDays":  totalDays,
 		},
 	})
 }
@@ -660,3 +675,85 @@ func UpdateSalaryStatus(c *gin.Context) {
 		},
 	})
 }
+
+func GetUserCheckin(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, err := GetIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, currentUserID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().Format("01/2006")
+	}
+
+	parsedDate, err := time.Parse("01/2006", date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+		return
+	}
+
+	year, month, _ := parsedDate.Date()
+	daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+
+	users, err := GetUsersByAdminID(currentUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+		return
+	}
+
+	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
+	endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
+
+	checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+		return
+	}
+
+	var response []gin.H
+	for _, u := range users {
+		checkinCount := 0
+		var checkinDates []time.Time
+		for _, ci := range checkedInUsers {
+			if ci.UserID == u.ID {
+				checkinCount++
+				checkinDates = append(checkinDates, ci.Date)
+			}
+		}
+
+		missingCheckinCount := daysInMonth - checkinCount
+
+		response = append(response, gin.H{
+			"name":               u.Name,
+			"phoneNumber":        u.PhoneNumber,
+			"amount":             u.Amount,
+			"checkinCount":       checkinCount,
+			"missingCheckinCount": missingCheckinCount,
+			"checkinDates":       checkinDates,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Tính lương thành công",
+		"data": response,
+	})
+}
+
+
+
