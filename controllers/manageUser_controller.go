@@ -224,6 +224,11 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật số dư"})
 		return
 	}
+	//Xóa redis cache
+	rdb, redisErr := config.ConnectRedis()
+	if redisErr == nil {
+		_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
@@ -289,6 +294,12 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 	if err := config.DB.Save(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật địa điểm điểm danh"})
 		return
+	}
+
+	//Xóa redis cache
+	rdb, redisErr := config.ConnectRedis()
+	if redisErr == nil {
+		_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
