@@ -732,14 +732,10 @@ func GetUserCheckin(c *gin.Context) {
 	}
 	cacheKey := fmt.Sprintf("user_checkin:%d", currentUserID)
 
-	var response []gin.H
-	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &response); err == nil && len(response) > 0 {
-		// Nếu không có dữ liệu cache, truy vấn DB
-		var user models.User
-		if err := config.DB.First(&user, currentUserID).Error; err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
-			return
-		}
+	var user models.User
+	if err := config.DB.First(&user, currentUserID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
 	}
 
 	date := c.Query("date")
@@ -774,26 +770,30 @@ func GetUserCheckin(c *gin.Context) {
 		return
 	}
 
-	for _, u := range users {
-		checkinCount := 0
-		var checkinDates []time.Time
-		for _, ci := range checkedInUsers {
-			if ci.UserID == u.ID {
-				checkinCount++
-				checkinDates = append(checkinDates, ci.Date)
+	var response []gin.H
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &response); err == nil && len(response) > 0 {
+		for _, u := range users {
+			checkinCount := 0
+			var checkinDates []time.Time
+			for _, ci := range checkedInUsers {
+				if ci.UserID == u.ID {
+					checkinCount++
+					checkinDates = append(checkinDates, ci.Date)
+				}
 			}
-		}
-		notCheckedInDays := daysInMonth - checkinCount
+			notCheckedInDays := daysInMonth - checkinCount
 
-		response = append(response, gin.H{
-			"id":               u.ID,
-			"name":             u.Name,
-			"phoneNumber":      u.PhoneNumber,
-			"amount":           u.Amount,
-			"checkinCount":     checkinCount,
-			"notCheckedInDays": notCheckedInDays,
-			"checkinDates":     checkinDates,
-		})
+			response = append(response, gin.H{
+				"id":               u.ID,
+				"name":             u.Name,
+				"phoneNumber":      u.PhoneNumber,
+				"amount":           u.Amount,
+				"checkinCount":     checkinCount,
+				"notCheckedInDays": notCheckedInDays,
+				"checkinDates":     checkinDates,
+			})
+		}
+
 	}
 
 	// Lưu cache vào Redis
