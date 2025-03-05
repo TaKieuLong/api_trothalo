@@ -39,23 +39,23 @@ type Bank struct {
 }
 
 type UserResponse struct {
-	UserID       uint           `json:"id"`
-	UserName     string         `json:"name"`
-	UserEmail    string         `json:"email"`
-	UserVerified bool           `json:"verified"`
-	UserPhone    string         `json:"phone"`
-	UserRole     int            `json:"role"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	UpdatedAt    time.Time      `json:"updatedAt"`
-	UserStatus   int            `json:"status"`
-	UserAvatar   string         `json:"avatar"`
-	UserBanks    []Bank         `json:"banks"`
-	Children     []UserResponse `json:"children,omitempty"`
-	AdminId      *uint          `json:"adminId,omitempty"`
-	Gender       int            `json:"gender"`
-	DateOfBirth  string         `json:"dateOfBirth"`
-	Amount       int64          `json:"amount"`
-	
+	UserID            uint           `json:"id"`
+	UserName          string         `json:"name"`
+	UserEmail         string         `json:"email"`
+	UserVerified      bool           `json:"verified"`
+	UserPhone         string         `json:"phone"`
+	UserRole          int            `json:"role"`
+	CreatedAt         time.Time      `json:"createdAt"`
+	UpdatedAt         time.Time      `json:"updatedAt"`
+	UserStatus        int            `json:"status"`
+	UserAvatar        string         `json:"avatar"`
+	UserBanks         []Bank         `json:"banks"`
+	Children          []UserResponse `json:"children,omitempty"`
+	AdminId           *uint          `json:"adminId,omitempty"`
+	Gender            int            `json:"gender"`
+	DateOfBirth       string         `json:"dateOfBirth"`
+	Amount            int64          `json:"amount"`
+	AccommodationName string         `json:"accommodation_name"`
 }
 
 type UserLoginResponse struct {
