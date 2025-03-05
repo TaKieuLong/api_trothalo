@@ -758,6 +758,7 @@ func GetUserCheckin(c *gin.Context) {
 		notCheckedInDays := daysInMonth - checkinCount
 
 		response = append(response, gin.H{
+			"id":               u.ID,
 			"name":             u.Name,
 			"phoneNumber":      u.PhoneNumber,
 			"amount":           u.Amount,
@@ -886,6 +887,7 @@ func GetUserSalary(c *gin.Context) {
 		}
 
 		response = append(response, gin.H{
+			"id":          u.ID,
 			"amount":      u.Amount,
 			"name":        u.Name,
 			"phoneNumber": u.PhoneNumber,
