@@ -383,6 +383,13 @@ func (u UserController) CheckInUser(c *gin.Context) {
 		return
 	}
 
+	//Xóa redis
+	rdb, redisErr := config.ConnectRedis()
+	if redisErr == nil {
+		adminCacheKey := fmt.Sprintf("user_checkin:%d", *user.AdminId)
+		_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Điểm danh thành công",
@@ -718,10 +725,21 @@ func GetUserCheckin(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := config.DB.First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
-		return
+	// Kết nối Redis và tạo cacheKey
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+	}
+	cacheKey := fmt.Sprintf("user_checkin:%d", currentUserID)
+
+	var response []gin.H
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &response); err == nil && len(response) > 0 {
+		// Nếu không có dữ liệu cache, truy vấn DB
+		var user models.User
+		if err := config.DB.First(&user, currentUserID).Error; err != nil {
+			c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+			return
+		}
 	}
 
 	date := c.Query("date")
@@ -756,7 +774,6 @@ func GetUserCheckin(c *gin.Context) {
 		return
 	}
 
-	var response []gin.H
 	for _, u := range users {
 		checkinCount := 0
 		var checkinDates []time.Time
@@ -777,6 +794,11 @@ func GetUserCheckin(c *gin.Context) {
 			"notCheckedInDays": notCheckedInDays,
 			"checkinDates":     checkinDates,
 		})
+	}
+
+	// Lưu cache vào Redis
+	if err := services.SetToRedis(config.Ctx, rdb, cacheKey, response, 30*time.Minute); err != nil {
+		log.Printf("Lỗi khi lưu dữ liệu điểm danh vào Redis: %v", err)
 	}
 
 	nameFilter := c.Query("name")
