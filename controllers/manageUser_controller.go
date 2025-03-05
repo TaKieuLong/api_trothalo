@@ -9,6 +9,8 @@ import (
 	"new/config"
 	"new/services"
 	"strings"
+	"strconv"
+	"sort"
 	"time"
 
 	"new/models"
@@ -706,7 +708,6 @@ func GetUserCheckin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
 		return
 	}
-
 	year, month, _ := parsedDate.Date()
 	daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 
@@ -716,15 +717,20 @@ func GetUserCheckin(c *gin.Context) {
 		return
 	}
 
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].UpdatedAt.After(users[j].UpdatedAt)
+	})
+
 	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
 	endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
 
+	
 	checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
 		return
 	}
-
+	
 	var response []gin.H
 	for _, u := range users {
 		checkinCount := 0
@@ -735,25 +741,68 @@ func GetUserCheckin(c *gin.Context) {
 				checkinDates = append(checkinDates, ci.Date)
 			}
 		}
-
-		missingCheckinCount := daysInMonth - checkinCount
+		notCheckedInDays := daysInMonth - checkinCount
 
 		response = append(response, gin.H{
-			"name":               u.Name,
-			"phoneNumber":        u.PhoneNumber,
-			"amount":             u.Amount,
-			"checkinCount":       checkinCount,
-			"missingCheckinCount": missingCheckinCount,
-			"checkinDates":       checkinDates,
+			"name":             u.Name,
+			"phoneNumber":      u.PhoneNumber,
+			"amount":           u.Amount,
+			"checkinCount":     checkinCount,
+			"notCheckedInDays": notCheckedInDays,
+			"checkinDates":     checkinDates,
+		
 		})
+	}
+
+	nameFilter := c.Query("name")
+	phoneFilter := c.Query("phone")
+	var filteredResponse []gin.H
+	for _, r := range response {
+		nameVal, _ := r["name"].(string)
+		phoneVal, _ := r["phoneNumber"].(string)
+		if (nameFilter == "" || strings.Contains(strings.ToLower(nameVal), strings.ToLower(nameFilter))) &&
+			(phoneFilter == "" || strings.Contains(phoneVal, phoneFilter)) {
+			filteredResponse = append(filteredResponse, r)
+		}
+	}
+
+	total := len(filteredResponse)
+
+	page := 0
+	limit := 10
+	if pageStr := c.Query("page"); pageStr != "" {
+		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
+			page = parsedPage
+		}
+	}
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	startIdx := page * limit
+	endIdx := startIdx + limit
+	if startIdx >= len(filteredResponse) {
+		filteredResponse = []gin.H{}
+	} else if endIdx > len(filteredResponse) {
+		filteredResponse = filteredResponse[startIdx:]
+	} else {
+		filteredResponse = filteredResponse[startIdx:endIdx]
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Tính lương thành công",
-		"data": response,
+		"data": filteredResponse,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+		},
 	})
 }
+
 
 
 
