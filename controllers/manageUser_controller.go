@@ -1,22 +1,22 @@
 package controllers
 
 import (
-	"errors"  
+	"errors"
 	"fmt"
 	"log"
 	"math"
 	"net/http"
 	"new/config"
 	"new/services"
-	"strings"
-	"strconv"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"new/models"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"  
+	"gorm.io/gorm"
 )
 
 type UpdateBalanceRequest struct {
@@ -45,6 +45,21 @@ func GetCheckedInUsers(startDate string, endDate string, users []models.User) ([
 	}
 
 	return CheckIn, nil
+}
+
+func GetUserSalaries(startDate string, endDate string, users []models.User) ([]models.UserSalary, error) {
+	var salaries []models.UserSalary
+	userIDs := getUserIDs(users)
+
+	if err := config.DB.
+		Table("user_salaries").
+		Where("DATE(salary_date) BETWEEN ? AND ?", startDate, endDate).
+		Where("user_id IN (?)", userIDs).
+		Find(&salaries).Error; err != nil {
+		return nil, err
+	}
+
+	return salaries, nil
 }
 
 func getUserIDs(users []models.User) []uint {
@@ -214,8 +229,8 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		"code": 1,
 		"mess": "Cập nhật số dư thành công",
 		"data": gin.H{
-			"userId": user.ID,
-			"amount": user.Amount,
+			"userId":    user.ID,
+			"amount":    user.Amount,
 			"dateCheck": user.DateCheck,
 		},
 	})
@@ -724,13 +739,12 @@ func GetUserCheckin(c *gin.Context) {
 	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
 	endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
 
-	
 	checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
 		return
 	}
-	
+
 	var response []gin.H
 	for _, u := range users {
 		checkinCount := 0
@@ -750,7 +764,6 @@ func GetUserCheckin(c *gin.Context) {
 			"checkinCount":     checkinCount,
 			"notCheckedInDays": notCheckedInDays,
 			"checkinDates":     checkinDates,
-		
 		})
 	}
 
@@ -803,6 +816,131 @@ func GetUserCheckin(c *gin.Context) {
 	})
 }
 
+func GetUserSalary(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
 
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, err := GetIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
 
+	var user models.User
+	if err := config.DB.First(&user, currentUserID).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
 
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().Format("01/2006")
+	}
+
+	parsedDate, err := time.Parse("01/2006", date)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+		return
+	}
+	year, month, _ := parsedDate.Date()
+	daysInMonth := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+
+	users, err := GetUsersByAdminID(currentUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+		return
+	}
+
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].UpdatedAt.After(users[j].UpdatedAt)
+	})
+
+	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
+	endDate := fmt.Sprintf("%04d-%02d-%02d", year, month, daysInMonth)
+
+	userSalaries, err := GetUserSalaries(startDate, endDate, users)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+		return
+	}
+
+	salaryMap := make(map[uint]models.UserSalary)
+	for _, s := range userSalaries {
+		salaryMap[s.UserID] = s
+	}
+
+	var response []gin.H
+	for _, u := range users {
+		salary, ok := salaryMap[u.ID]
+		totalSalary, bonus, penalty, status := 0, 0, 0, false
+
+		if ok {
+			totalSalary = salary.TotalSalary
+			bonus = salary.Bonus
+			penalty = salary.Penalty
+			status = salary.Status
+		}
+
+		response = append(response, gin.H{
+			"amount":      u.Amount,
+			"name":        u.Name,
+			"phoneNumber": u.PhoneNumber,
+			"totalSalary": totalSalary,
+			"bonus":       bonus,
+			"penalty":     penalty,
+			"status":      status,
+		})
+	}
+
+	nameFilter := c.Query("name")
+	phoneFilter := c.Query("phone")
+	var filteredResponse []gin.H
+	for _, r := range response {
+		nameVal, _ := r["name"].(string)
+		phoneVal, _ := r["phoneNumber"].(string)
+		if (nameFilter == "" || strings.Contains(strings.ToLower(nameVal), strings.ToLower(nameFilter))) &&
+			(phoneFilter == "" || strings.Contains(phoneVal, phoneFilter)) {
+			filteredResponse = append(filteredResponse, r)
+		}
+	}
+
+	total := len(filteredResponse)
+
+	page := 0
+	limit := 10
+	if pageStr := c.Query("page"); pageStr != "" {
+		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
+			page = parsedPage
+		}
+	}
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	startIdx := page * limit
+	endIdx := startIdx + limit
+	if startIdx >= len(filteredResponse) {
+		filteredResponse = []gin.H{}
+	} else if endIdx > len(filteredResponse) {
+		filteredResponse = filteredResponse[startIdx:]
+	} else {
+		filteredResponse = filteredResponse[startIdx:endIdx]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Tính lương thành công",
+		"data": filteredResponse,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+		},
+	})
+}
