@@ -592,6 +592,7 @@ func CalculateUserSalary(c *gin.Context) {
 		UserID   uint `json:"userId"`
 		Bonus    int  `json:"bonus"`
 		Penalty  int  `json:"penalty"`
+		Amount   int  `json:"amount"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -619,7 +620,7 @@ func CalculateUserSalary(c *gin.Context) {
 		return
 	}
 
-	baseSalary := user.Amount
+	baseSalary := req.Amount
 	totalSalary := int(baseSalary) + req.Bonus - req.Penalty
 
 	// Tìm hoặc tạo bản ghi usersalary
