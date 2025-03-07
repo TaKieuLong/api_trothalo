@@ -350,16 +350,18 @@ func (u UserController) CheckInUser(c *gin.Context) {
 		lat2Rad, lon2Rad := lat2*(math.Pi/180), lon2*(math.Pi/180)
 		dLat, dLon := lat2Rad-lat1Rad, lon2Rad-lon1Rad
 
-		a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+		a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+			math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
 		c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 
 		return earthRadiusKm * c
 	}
 
-	d := distance(accommodation.Latitude, accommodation.Longitude, req.Latitude, req.Longitude)
+	d := distance(accommodation.Longitude, accommodation.Latitude, req.Latitude, req.Longitude)
 
-	if d > 1.0 {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Vị trí không hợp lệ"})
+	//không quá 100m
+	if d > 0.1 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Vị trí không hợp lệ", "d": d})
 		return
 	}
 
@@ -398,6 +400,7 @@ func (u UserController) CheckInUser(c *gin.Context) {
 			"status":      user.Status,
 			"timeCheckIn": currentTime,
 		},
+		"d": d,
 	})
 }
 
