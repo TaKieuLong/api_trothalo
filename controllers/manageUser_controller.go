@@ -1037,12 +1037,19 @@ func GetAccommodationReceptionist(c *gin.Context) {
 		}
 
 		// Kiểm tra xem user có danh sách accommodation không
-		if len(user.AccommodationID) > 0 {
-			if err := config.DB.Where("id IN (?)", user.AccommodationID).Find(&accommodations).Error; err != nil {
+		if len(user.AccommodationIDs) > 0 {
+			var ids []int64
+			for _, id := range user.AccommodationIDs {
+				ids = append(ids, id)
+			}
+
+			if err := config.DB.Where("id IN (?)", ids).Find(&accommodations).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error fetching accommodations"})
 				return
 			}
 		}
+		log.Printf("User AccommodationIDs: %v", user.AccommodationIDs)
+
 		// Lưu cache vào Redis
 		err = services.SetToRedis(config.Ctx, rdb, cacheKey, accommodations, 30*time.Minute)
 		if err != nil {
@@ -1053,19 +1060,13 @@ func GetAccommodationReceptionist(c *gin.Context) {
 
 	// Lọc dữ liệu sau khi đã có response
 	nameFilter := c.Query("name")
-	phoneFilter := c.Query("phone")
+
 	filteredResponse := make([]models.Accommodation, 0)
 	for _, acc := range accommodations {
 
 		if nameFilter != "" {
 			decodedNameFilter, _ := url.QueryUnescape(nameFilter)
 			if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedNameFilter)) {
-				continue
-			}
-		}
-		if phoneFilter != "" {
-			decodedPhoneFilter, _ := url.QueryUnescape(phoneFilter)
-			if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedPhoneFilter)) {
 				continue
 			}
 		}
