@@ -242,7 +242,6 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 }
 
 func (u UserController) UpdateUserAccommodation(c *gin.Context) {
-
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
@@ -257,8 +256,8 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 	}
 
 	var req struct {
-		UserID          uint `json:"userId"`
-		AccommodationID uint `json:"accommodationId"`
+		UserID           uint    `json:"userId"`
+		AccommodationIDs []int64 `json:"accommodationIds"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -266,9 +265,14 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 		return
 	}
 
+	if len(req.AccommodationIDs) > 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Chỉ được gửi tối đa 5 địa điểm lưu trú"})
+		return
+	}
+
 	var user models.User
 	if err := config.DB.First(&user, req.UserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại", "err": err})
 		return
 	}
 
@@ -279,18 +283,18 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 
 	var count int64
 	if err := config.DB.Model(&models.Accommodation{}).
-		Where("id = ? AND user_id = ?", req.AccommodationID, currentUserID).
+		Where("id IN ? AND user_id = ?", req.AccommodationIDs, currentUserID).
 		Count(&count).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi kiểm tra quyền sở hữu"})
 		return
 	}
 
-	if count == 0 {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Bạn không sở hữu lưu trú này"})
+	if count != int64(len(req.AccommodationIDs)) {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Bạn không sở hữu tất cả các lưu trú này"})
 		return
 	}
 
-	user.AccommodationID = &req.AccommodationID
+	user.AccommodationIDs = req.AccommodationIDs
 	if err := config.DB.Save(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật địa điểm điểm danh"})
 		return
@@ -307,7 +311,7 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 		"mess": "Phân quyền thành công",
 		"data": gin.H{
 			"userId":          user.ID,
-			"accommodationId": user.AccommodationID,
+			"accommodationId": user.AccommodationIDs,
 		},
 	})
 }
@@ -332,14 +336,14 @@ func (u UserController) CheckInUser(c *gin.Context) {
 		return
 	}
 
-	if user.AccommodationID == nil {
+	if user.AccommodationIDs == nil || len(user.AccommodationIDs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng chưa có thông tin lưu trú"})
 		return
 	}
 
-	var accommodation models.Accommodation
-	if err := config.DB.First(&accommodation, user.AccommodationID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không tìm thấy thông tin lưu trú"})
+	var accommodations []models.Accommodation
+	if err := config.DB.Where("id IN ?", user.AccommodationIDs).Find(&accommodations).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy thông tin lưu trú"})
 		return
 	}
 
@@ -357,11 +361,17 @@ func (u UserController) CheckInUser(c *gin.Context) {
 		return earthRadiusKm * c
 	}
 
-	d := distance(accommodation.Longitude, accommodation.Latitude, req.Latitude, req.Longitude)
+	validLocation := false
+	for _, acc := range accommodations {
+		d := distance(acc.Latitude, acc.Longitude, req.Latitude, req.Longitude)
+		if d <= 0.1 {
+			validLocation = true
+			break
+		}
+	}
 
-	//không quá 100m
-	if d > 0.1 {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Vị trí không hợp lệ", "d": d})
+	if !validLocation {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Vị trí không hợp lệ"})
 		return
 	}
 
@@ -400,7 +410,7 @@ func (u UserController) CheckInUser(c *gin.Context) {
 			"status":      user.Status,
 			"timeCheckIn": currentTime,
 		},
-		"d": d,
+		// "d": d,
 	})
 }
 
