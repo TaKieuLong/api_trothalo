@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"new/config"
 	"new/services"
 	"sort"
@@ -997,4 +998,122 @@ func GetUserSalary(c *gin.Context) {
 			"total": total,
 		},
 	})
+}
+
+func GetAccommodationReceptionist(c *gin.Context) {
+	var user models.User
+	var accommodations []models.Accommodation
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing!"})
+		return
+	}
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+	}
+
+	//Tạo cache key Redis
+	var cacheKey string
+	if currentUserRole == 3 {
+		cacheKey = fmt.Sprintf("accom_role_3:%d", currentUserID)
+	}
+	// Kết nối Redis
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+
+	}
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &accommodations); err == nil && len(accommodations) > 0 {
+		// Nếu dữ liệu có trong cache, không cần truy vấn lại DB
+		log.Println("Dữ liệu lấy từ cache")
+	} else {
+		// Lấy thông tin user từ DB
+		if err := config.DB.First(&user, currentUserID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "User not found"})
+			return
+		}
+
+		// Kiểm tra xem user có danh sách accommodation không
+		if len(user.AccommodationIDs) > 0 {
+			var ids []int64
+			for _, id := range user.AccommodationIDs {
+				ids = append(ids, id)
+			}
+
+			if err := config.DB.Where("id IN (?)", ids).Find(&accommodations).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error fetching accommodations"})
+				return
+			}
+		}
+		log.Printf("User AccommodationIDs: %v", user.AccommodationIDs)
+
+		// Lưu cache vào Redis
+		err = services.SetToRedis(config.Ctx, rdb, cacheKey, accommodations, 30*time.Minute)
+		if err != nil {
+			log.Printf("Lỗi khi lưu dữ liệu vào Redis: %v", err)
+		}
+		log.Println("Dữ liệu đã được lưu vào Redis")
+	}
+
+	// Lọc dữ liệu sau khi đã có response
+	nameFilter := c.Query("name")
+
+	filteredResponse := make([]models.Accommodation, 0)
+	for _, acc := range accommodations {
+
+		if nameFilter != "" {
+			decodedNameFilter, _ := url.QueryUnescape(nameFilter)
+			if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedNameFilter)) {
+				continue
+			}
+		}
+
+		filteredResponse = append(filteredResponse, acc)
+	}
+
+	total := len(filteredResponse)
+
+	//Xếp theo update mới nhất
+	sort.Slice(filteredResponse, func(i, j int) bool {
+		return filteredResponse[i].UpdateAt.After(filteredResponse[j].UpdateAt)
+	})
+
+	// Pagination
+	page := 0
+	limit := 10
+	if pageStr := c.Query("page"); pageStr != "" {
+		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
+			page = parsedPage
+		}
+	}
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	start := page * limit
+	end := start + limit
+	if start >= len(filteredResponse) {
+		filteredResponse = []models.Accommodation{}
+	} else if end > len(filteredResponse) {
+		filteredResponse = filteredResponse[start:]
+	} else {
+		filteredResponse = filteredResponse[start:end]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "lấy danh sách cơ sở thành công!",
+		"data": filteredResponse,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+		},
+	})
+
 }
