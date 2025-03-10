@@ -1048,7 +1048,6 @@ func GetAccommodationReceptionist(c *gin.Context) {
 				return
 			}
 		}
-		log.Printf("User AccommodationIDs: %v", user.AccommodationIDs)
 
 		// Lưu cache vào Redis
 		err = services.SetToRedis(config.Ctx, rdb, cacheKey, accommodations, 30*time.Minute)
@@ -1059,14 +1058,55 @@ func GetAccommodationReceptionist(c *gin.Context) {
 	}
 
 	// Lọc dữ liệu sau khi đã có response
+	typeFilter := c.Query("type")
 	nameFilter := c.Query("name")
-
+	statusFilter := c.Query("status")
+	numBedFilter := c.Query("numBed")
+	numToletFilter := c.Query("numTolet")
+	peopleFilter := c.Query("people")
+	provinceFilter := c.Query("province")
 	filteredResponse := make([]models.Accommodation, 0)
 	for _, acc := range accommodations {
 
+		if typeFilter != "" {
+			parsedTypeFilter, err := strconv.Atoi(typeFilter)
+			if err == nil && acc.Type != parsedTypeFilter {
+				continue
+			}
+		}
+		if statusFilter != "" {
+			parsedStatusFilter, err := strconv.Atoi(statusFilter)
+			if err == nil && acc.Status != parsedStatusFilter {
+				continue
+			}
+		}
+		if provinceFilter != "" {
+			decodedProvinceFilter, _ := url.QueryUnescape(provinceFilter)
+			if !strings.Contains(strings.ToLower(acc.Province), strings.ToLower(decodedProvinceFilter)) {
+				continue
+			}
+		}
 		if nameFilter != "" {
 			decodedNameFilter, _ := url.QueryUnescape(nameFilter)
 			if !strings.Contains(strings.ToLower(acc.Name), strings.ToLower(decodedNameFilter)) {
+				continue
+			}
+		}
+		if numBedFilter != "" {
+			numBed, _ := strconv.Atoi(numBedFilter)
+			if acc.NumBed != numBed {
+				continue
+			}
+		}
+		if numToletFilter != "" {
+			numTolet, _ := strconv.Atoi(numToletFilter)
+			if acc.NumTolet != numTolet {
+				continue
+			}
+		}
+		if peopleFilter != "" {
+			people, _ := strconv.Atoi(peopleFilter)
+			if acc.People != people {
 				continue
 			}
 		}
