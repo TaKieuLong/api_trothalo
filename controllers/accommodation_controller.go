@@ -1274,7 +1274,7 @@ func GetAccommodationDetail(c *gin.Context) {
 			Select("MIN(price)").
 			Scan(&price).Error
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy giá phòng thấp nhất"})
+			price = 0
 		}
 	} else {
 
