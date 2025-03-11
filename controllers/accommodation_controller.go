@@ -1098,7 +1098,7 @@ func CreateAccommodation(c *gin.Context) {
 
 	newAccommodation.Benefits = benefits
 
-	longitude, latitude, err := services.GetCoordinatesFromAddress(
+	latitude, longitude, err := services.GetCoordinatesFromAddress(
 		newAccommodation.Address,
 		newAccommodation.District,
 		newAccommodation.Province,
