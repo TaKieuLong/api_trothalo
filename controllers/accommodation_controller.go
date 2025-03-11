@@ -1275,7 +1275,6 @@ func GetAccommodationDetail(c *gin.Context) {
 			Scan(&price).Error
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy giá phòng thấp nhất"})
-			return
 		}
 	} else {
 
@@ -1363,7 +1362,7 @@ func UpdateAccommodation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa nội thất", "details": err.Error()})
 		return
 	}
-	longitude, latitude, err := services.GetCoordinatesFromAddress(
+	latitude, longitude, err := services.GetCoordinatesFromAddress(
 		request.Address,
 		request.District,
 		request.Province,
