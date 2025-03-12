@@ -566,16 +566,10 @@ func (u UserController) ChangeUserStatus(c *gin.Context) {
 
 // Get Detail Receptionist
 func (u UserController) GetReceptionistByID(c *gin.Context) {
-	var user struct {
-		models.User
-		AccommodationName string `json:"accommodation_name"`
-	}
+	var user models.User
 	id := c.Param("id")
 
-	// Truy vấn User + Accommodation Name
 	err := u.DB.Table("users").
-		Select("users.*, accommodations.name AS accommodation_name").
-		Joins("LEFT JOIN accommodations ON accommodations.id = users.accommodation_id").
 		Where("users.id = ?", id).
 		First(&user).Error
 
@@ -584,27 +578,49 @@ func (u UserController) GetReceptionistByID(c *gin.Context) {
 		return
 	}
 
-	// Lấy danh sách ngân hàng của User
 	var banks []Bank
 	u.DB.Where("user_id = ?", id).Find(&banks)
 
-	// Định dạng response
-	userResponse := UserResponse{
-		UserID:            user.ID,
-		UserName:          user.Name,
-		UserEmail:         user.Email,
-		UserVerified:      user.IsVerified,
-		UserPhone:         user.PhoneNumber,
-		UserRole:          user.Role,
-		UserAvatar:        user.Avatar,
-		UserBanks:         banks,
-		UserStatus:        user.Status,
-		DateOfBirth:       user.DateOfBirth,
-		Amount:            user.Amount,
-		AccommodationName: user.AccommodationName,
-		CreatedAt:         user.CreatedAt,
-		UpdatedAt:         user.UpdatedAt,
+	var accommodations []struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy thông tin lễ tân thành công", "data": userResponse})
+	var ids []int64
+	for _, v := range user.AccommodationIDs {
+		ids = append(ids, v)
+	}
+
+	if len(ids) > 0 {
+		u.DB.Table("accommodations").
+			Select("id, name").
+			Where("id IN (?)", ids).
+			Find(&accommodations)
+	}
+
+	userResponse := UserResponse{
+		UserID:           user.ID,
+		UserName:         user.Name,
+		UserEmail:        user.Email,
+		UserVerified:     user.IsVerified,
+		UserPhone:        user.PhoneNumber,
+		UserRole:         user.Role,
+		UserAvatar:       user.Avatar,
+		UserBanks:        banks,
+		UserStatus:       user.Status,
+		DateOfBirth:      user.DateOfBirth,
+		Amount:           user.Amount,
+		AccommodationIDs: user.AccommodationIDs,
+		CreatedAt:        user.CreatedAt,
+		UpdatedAt:        user.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy thông tin lễ tân thành công",
+		"data": gin.H{
+			"user":           userResponse,
+			"accommodations": accommodations,
+		},
+	})
 }
