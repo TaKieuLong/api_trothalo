@@ -291,13 +291,34 @@ func getGuestBookings(accommodationID string) (map[string]map[string]string, err
 			continue
 		}
 
+		guestName := order.GuestName
+		guestPhone := order.GuestPhone
+
+		// Nếu guestName và guestPhone rỗng, truy vấn vào bảng Users
+		if guestName == "" || guestPhone == "" {
+			var user models.User
+			err := db.Where("id = ?", order.UserID).First(&user).Error
+			if err != nil {
+				log.Printf("Không tìm thấy thông tin user ID %d: %v", order.UserID, err)
+				continue
+			}
+
+			// Gán thông tin từ bảng users nếu thiếu
+			if guestName == "" {
+				guestName = user.Name
+			}
+			if guestPhone == "" {
+				guestPhone = user.PhoneNumber
+			}
+		}
+
 		for day := checkIn; !day.After(checkOut); day = day.AddDate(0, 0, 1) {
 			dateKey := day.Format(dateFormat)
 			// Chỉ lưu khách đầu tiên của ngày đó (nếu chưa có)
 			if _, exists := orderMap[dateKey]; !exists {
 				orderMap[dateKey] = map[string]string{
-					"guest_name":  order.GuestName,
-					"guest_phone": order.GuestPhone,
+					"guest_name":  guestName,
+					"guest_phone": guestPhone,
 				}
 			}
 		}
