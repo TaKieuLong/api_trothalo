@@ -194,7 +194,7 @@ func GetRoomBookingDates(c *gin.Context) {
 
 		// Kiểm tra trạng thái của phòng
 		for _, roomStatus := range statuses {
-			if currentDate.After(roomStatus.FromDate.AddDate(0, 0, -1)) && currentDate.Before(roomStatus.ToDate) {
+			if !currentDate.Before(roomStatus.FromDate) && !currentDate.After(roomStatus.ToDate) {
 				status = roomStatus.Status
 				statusFound = true
 				break
