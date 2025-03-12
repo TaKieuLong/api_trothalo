@@ -218,30 +218,45 @@ func GetAccBookingDates(c *gin.Context) {
 		return
 	}
 
+	// Lấy thông tin khách đặt phòng (chỉ lấy guest_name và guest_phone)
+	orderMap, err := getGuestBookings(accommodationID)
+	if err != nil {
+		log.Printf("Error retrieving guest bookings: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy danh sách đặt phòng"})
+		return
+	}
+
+	dateFormat := "02/01/2006"
 	var roomResponses []map[string]interface{}
 
 	for _, currentDate := range allDates {
-
+		dateStr := currentDate.Format(dateFormat)
 		var statusFound bool
-		for _, status := range statuses {
-			if status.FromDate.Year() == currentDate.Year() && status.FromDate.Month() == currentDate.Month() &&
-				currentDate.After(status.FromDate.AddDate(0, 0, -1)) && currentDate.Before(status.ToDate.AddDate(0, 0, 1)) {
+		var status int
 
-				roomResponses = append(roomResponses, map[string]interface{}{
-					"date":   currentDate.Format("02/01/2006"),
-					"status": status.Status,
-				})
+		for _, accStatus := range statuses {
+			if currentDate.After(accStatus.FromDate.AddDate(0, 0, -1)) && currentDate.Before(accStatus.ToDate) {
+				status = accStatus.Status
 				statusFound = true
 				break
 			}
 		}
 
 		if !statusFound {
-			roomResponses = append(roomResponses, map[string]interface{}{
-				"date":   currentDate.Format("02/01/2006"),
-				"status": 0,
-			})
+			status = 0
 		}
+
+		roomResponse := map[string]interface{}{
+			"date":   dateStr,
+			"status": status,
+		}
+
+		// Nếu có khách đặt phòng, gán vào response (dạng object)
+		if guest, exists := orderMap[dateStr]; exists {
+			roomResponse["guest"] = guest
+		}
+
+		roomResponses = append(roomResponses, roomResponse)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -249,6 +264,46 @@ func GetAccBookingDates(c *gin.Context) {
 		"mess": "Lấy danh sách phòng thành công",
 		"data": roomResponses,
 	})
+}
+
+// getGuestBookings lấy thông tin khách đặt phòng theo accommodation_id cho API GetAccBookingDates
+func getGuestBookings(accommodationID string) (map[string]map[string]string, error) {
+	var orders []models.Order
+	db := config.DB
+	err := db.Where("accommodation_id = ?", accommodationID).Find(&orders).Error
+	if err != nil {
+		return nil, fmt.Errorf("lỗi khi lấy danh sách đặt phòng: %v", err)
+	}
+
+	dateFormat := "02/01/2006"
+	orderMap := make(map[string]map[string]string)
+
+	for _, order := range orders {
+		checkIn, err := time.Parse(dateFormat, order.CheckInDate)
+		if err != nil {
+			log.Printf("Error parsing CheckIn date: %v", err)
+			continue
+		}
+
+		checkOut, err := time.Parse(dateFormat, order.CheckOutDate)
+		if err != nil {
+			log.Printf("Error parsing CheckOut date: %v", err)
+			continue
+		}
+
+		for day := checkIn; !day.After(checkOut); day = day.AddDate(0, 0, 1) {
+			dateKey := day.Format(dateFormat)
+			// Chỉ lưu khách đầu tiên của ngày đó (nếu chưa có)
+			if _, exists := orderMap[dateKey]; !exists {
+				orderMap[dateKey] = map[string]string{
+					"guest_name":  order.GuestName,
+					"guest_phone": order.GuestPhone,
+				}
+			}
+		}
+	}
+
+	return orderMap, nil
 }
 
 func GetAllAccommodations(c *gin.Context) {

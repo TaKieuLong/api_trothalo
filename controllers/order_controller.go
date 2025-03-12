@@ -167,6 +167,7 @@ func GetOrders(c *gin.Context) {
 	priceStr := c.Query("price")
 	fromDateStr := c.Query("fromDate")
 	toDateStr := c.Query("toDate")
+	statusFilter := c.Query("status")
 
 	// Xử lý phân trang
 	page := 0
@@ -222,6 +223,12 @@ func GetOrders(c *gin.Context) {
 				return
 			}
 			if order.UpdatedAt.After(toDateISO) {
+				continue
+			}
+		}
+		if statusFilter != "" {
+			parsedStatusFilter, err := strconv.Atoi(statusFilter)
+			if err == nil && order.Status != parsedStatusFilter {
 				continue
 			}
 		}
