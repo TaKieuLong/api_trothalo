@@ -154,8 +154,10 @@ func GetRoomBookingDates(c *gin.Context) {
 		return
 	}
 
+	// Thiết lập timezone theo Asia/Ho_Chi_Minh
+	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
 	// Tính toán ngày đầu tháng và ngày cuối tháng
-	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, time.Local)
+	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, loc)
 	lastDay := firstDay.AddDate(0, 1, -1)
 
 	// Tạo danh sách tất cả các ngày trong tháng
@@ -194,7 +196,7 @@ func GetRoomBookingDates(c *gin.Context) {
 
 		// Kiểm tra trạng thái của phòng
 		for _, roomStatus := range statuses {
-			if currentDate.After(roomStatus.FromDate.AddDate(0, 0, -1)) && currentDate.Before(roomStatus.ToDate) {
+			if currentDate.After(roomStatus.FromDate.AddDate(0, 0, -1)) && !currentDate.After(roomStatus.ToDate) {
 				status = roomStatus.Status
 				statusFound = true
 				break
