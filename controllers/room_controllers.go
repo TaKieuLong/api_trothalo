@@ -154,8 +154,12 @@ func GetRoomBookingDates(c *gin.Context) {
 		return
 	}
 
-	// Thiết lập timezone theo Asia/Ho_Chi_Minh
-	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
+	// Thay thế bằng UTC nếu LoadLocation lỗi
+	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError,gin.H{"error":"Không thể tải múi giờ Asia/Ho_Chi_Minh, sử dụng UTC thay thế"})
+		loc = time.UTC
+	}
 	// Tính toán ngày đầu tháng và ngày cuối tháng
 	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, loc)
 	lastDay := firstDay.AddDate(0, 1, -1)
