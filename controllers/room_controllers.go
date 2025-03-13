@@ -154,14 +154,8 @@ func GetRoomBookingDates(c *gin.Context) {
 		return
 	}
 
-	// Thay thế bằng UTC nếu LoadLocation lỗi
-	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError,gin.H{"error":"Không thể tải múi giờ Asia/Ho_Chi_Minh, sử dụng UTC thay thế"})
-		loc = time.UTC
-	}
 	// Tính toán ngày đầu tháng và ngày cuối tháng
-	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, loc)
+	firstDay := time.Date(parsedDate.Year(), parsedDate.Month(), 1, 0, 0, 0, 0, time.UTC)
 	lastDay := firstDay.AddDate(0, 1, -1)
 
 	// Tạo danh sách tất cả các ngày trong tháng
