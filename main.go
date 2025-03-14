@@ -7,41 +7,17 @@ import (
 	"new/routes"
 
 	"github.com/gin-contrib/cors"
-
 	"github.com/gin-gonic/gin"
+	"github.com/olahol/melody"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func recreateUserTable() {
 
-	// if err := config.DB.Migrator().DropTable(&models.Rate{}); err != nil {
-	// 	panic("Failed to drop Room table: " + err.Error())
-	// }
-
 	// if err := config.DB.AutoMigrate(&models.Room{}, &models.Benefit{}, &models.User{}, models.Rate{}, models.Order{}, models.Invoice{}, models.Bank{}, models.Accommodation{}, models.AccommodationStatus{}, models.BankFake{}, models.UserDiscount{}, models.Discount{}, models.Holiday{}, models.RoomStatus{}); err != nil {
 	// 	panic("Failed to migrate tables: " + err.Error())
 	// }
-
-	//if err := config.DB.AutoMigrate(&models.User{}); err != nil {
-	//	panic("Failed to migrate tables: " + err.Error())
-	//}
-
-	// Thêm cột PaymentType vào bảng Invoice
-	// if err := config.DB.Migrator().AddColumn(&models.Invoice{}, "PaymentType"); err != nil {
-	// 	log.Fatalf("Failed to add column: %v", err)
-	// }
-
-	// Thêm cột PaymentType vào bảng Invoice
-	// if err := config.DB.Migrator().AlterColumn(&models.Accommodation{}, "Longitude"); err != nil {
-	// 	log.Fatalf("Failed to add column: %v", err)
-	// }
-
-	// if err := config.DB.Migrator().AlterColumn(&models.Accommodation{}, "Latitude"); err != nil {
-	// 	log.Fatalf("Failed to add column: %v", err)
-	// }
-
-	// config.DB.AutoMigrate(&models.UserSalary{})
 
 	println("abc.")
 }
@@ -77,6 +53,16 @@ func main() {
 	router.Use(cors.New(configCors))
 
 	routes.SetupRoutes(router, config.DB, redisCli, config.Cloudinary)
+
+	m := melody.New()
+
+	router.GET("/ws", func(c *gin.Context) {
+		m.HandleRequest(c.Writer, c.Request)
+	})
+
+	m.HandleMessage(func(s *melody.Session, msg []byte) {
+		m.Broadcast(msg)
+	})
 
 	router.Use(func(c *gin.Context) {
 		c.Next()
