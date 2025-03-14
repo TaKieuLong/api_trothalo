@@ -2,12 +2,14 @@ package routes
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"new/config"
 	"new/controllers"
 	middlewares "new/middleware"
 
 	"github.com/gin-gonic/gin"
+	"github.com/olahol/melody"
 
 	"github.com/redis/go-redis/v9"
 
@@ -16,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *cloudinary.Cloudinary) {
+func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *cloudinary.Cloudinary, m *melody.Melody) {
 
 	userController := controllers.NewUserController(db, redisCli)
 
@@ -168,6 +170,14 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 			"message": "Upload avatar thành công",
 			"url":     resp.SecureURL,
 		})
+	})
+
+	//ws
+	v1.GET("/test-broadcast", func(c *gin.Context) {
+		message := []byte("Thông báo từ backend: Tin nhắn mới!")
+		fmt.Println("Broadcasting message:", string(message))
+		m.Broadcast(message)
+		c.String(200, "Broadcast message sent!")
 	})
 
 }

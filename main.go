@@ -35,6 +35,9 @@ func main() {
 	// Khởi tạo Cloudinary
 	config.ConnectCloudinary()
 
+	// Khởi ws
+	m := melody.New()
+
 	recreateUserTable()
 
 	redisCli, err := config.ConnectRedis()
@@ -52,9 +55,7 @@ func main() {
 
 	router.Use(cors.New(configCors))
 
-	routes.SetupRoutes(router, config.DB, redisCli, config.Cloudinary)
-
-	m := melody.New()
+	routes.SetupRoutes(router, config.DB, redisCli, config.Cloudinary, m)
 
 	router.GET("/ws", func(c *gin.Context) {
 		m.HandleRequest(c.Writer, c.Request)
