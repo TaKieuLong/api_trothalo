@@ -74,6 +74,7 @@ type UserLoginResponse struct {
 	Gender       int       `json:"gender"`
 	DateOfBirth  string    `json:"dateOfBirth"`
 	AdminId      *uint     `json:"adminId"`
+	Amount       int64     `json:"amount"`
 }
 
 func Login(c *gin.Context) {
@@ -108,29 +109,14 @@ func Login(c *gin.Context) {
 	}
 
 	var banks []Bank
-	if user.Role == 3 {
-		var adminUser models.User
-		if err := config.DB.Preload("Banks").Where("id = ?", user.AdminId).First(&adminUser).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không tìm thấy admin liên quan"})
-			return
-		}
 
-		for _, bank := range adminUser.Banks {
-			banks = append(banks, Bank{
-				BankName:      bank.BankName,
-				AccountNumber: bank.AccountNumber,
-				BankShortName: bank.BankShortName,
-			})
-		}
-	} else {
-		// Nếu không, lấy Bank của user hiện tại
-		for _, bank := range user.Banks {
-			banks = append(banks, Bank{
-				BankName:      bank.BankName,
-				AccountNumber: bank.AccountNumber,
-				BankShortName: bank.BankShortName,
-			})
-		}
+	// Nếu không, lấy Bank của user hiện tại
+	for _, bank := range user.Banks {
+		banks = append(banks, Bank{
+			BankName:      bank.BankName,
+			AccountNumber: bank.AccountNumber,
+			BankShortName: bank.BankShortName,
+		})
 	}
 
 	userResponse := UserLoginResponse{
@@ -146,6 +132,7 @@ func Login(c *gin.Context) {
 		UserBanks:    banks,
 		Gender:       user.Gender,
 		DateOfBirth:  user.DateOfBirth,
+		Amount:       user.Amount,
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng nhập thành công", "data": gin.H{
