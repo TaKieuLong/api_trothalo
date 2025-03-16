@@ -105,10 +105,14 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 
 	v1.GET("/invoices", controllers.GetInvoices)
 	v1.GET("/invoices/:id", controllers.GetDetailInvoice)
-	v1.GET("/revenue", controllers.GetTotalRevenue)
-	v1.GET("/revenue/detail", controllers.GetTotal)
+
 	v1.POST("/sendpay", controllers.SendPay)
 	v1.PUT("/paymentStatus", controllers.UpdatePaymentStatus)
+
+	//doanh thu
+	v1.GET("/revenue", controllers.GetTotalRevenue)
+	v1.GET("/revenue/detail", controllers.GetTotal)
+	v1.GET("/today", controllers.GetToday)
 
 	v1.POST("/img/multi-upload", func(c *gin.Context) {
 		form, er := c.MultipartForm()

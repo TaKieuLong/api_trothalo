@@ -686,6 +686,7 @@ func ChangeOrderStatus(c *gin.Context) {
 					return
 				}
 			}
+
 		}
 	}
 
@@ -710,6 +711,11 @@ func ChangeOrderStatus(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo hóa đơn"})
 			return
 		}
+
+		if err := services.UpdateDailyRevenue(); err != nil {
+			log.Printf("Lỗi khi cập nhật doanh thu hàng ngày: %v", err)
+		}
+
 	}
 
 	order.Status = req.Status

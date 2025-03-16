@@ -9,4 +9,7 @@ type UserDiscount struct {
 	UsageCount int       `gorm:"default:0"`  // Số lần sử dụng mã giảm giá
 	CreatedAt  time.Time `gorm:"createdAt"`  // Thời gian tạo bản ghi
 	UpdatedAt  time.Time `gorm:"updatedAt"`  // Thời gian cập nhật bản ghi
+
+	User     User     `gorm:"foreignKey:UserID;" json:"user"`
+	Discount Discount `gorm:"foreignKey:DiscountID;" json:"discount"`
 }

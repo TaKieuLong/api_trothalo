@@ -5,10 +5,13 @@ import (
 	"new/config"
 	_ "new/docs"
 	"new/routes"
+	"new/services"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/olahol/melody"
+	"github.com/robfig/cron/v3"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -37,6 +40,23 @@ func main() {
 
 	// Khởi ws
 	m := melody.New()
+
+	// Khởi tạo cron job
+	c := cron.New()
+
+	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
+	time.Local = loc
+	_, err = c.AddFunc("0 0 * * *", func() {
+		now := time.Now().In(loc)
+		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
+		services.UpdateUserAmounts(m)
+	})
+
+	if err != nil {
+		panic(fmt.Sprintf("Lỗi khi thêm cron job: %v", err))
+	}
+
+	c.Start()
 
 	recreateUserTable()
 
