@@ -130,7 +130,6 @@ func getRoomStatuses(fromDate, toDate time.Time) ([]models.RoomStatus, error) {
 func filterRoomStatusesByDate(statuses []models.RoomStatus, fromDate, toDate time.Time) []models.RoomStatus {
 	var filteredStatuses []models.RoomStatus
 	for _, status := range statuses {
-
 		if !(status.ToDate.Before(fromDate) || status.FromDate.After(toDate)) {
 			continue
 		}

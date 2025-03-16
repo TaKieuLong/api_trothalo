@@ -149,15 +149,7 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 
 	// Thử lấy dữ liệu từ Redis
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &statuses); err == nil && len(statuses) > 0 {
-		// Nếu lấy thành công và có dữ liệu, trả về
-		var filteredStatuses []models.AccommodationStatus
-		for _, status := range statuses {
-			if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
-				(status.ToDate.Before(toDate) || status.ToDate.Equal(toDate)) {
-				filteredStatuses = append(filteredStatuses, status)
-			}
-		}
-		return filteredStatuses, nil
+		return filterAccommodationStatusesByDate(statuses, fromDate, toDate), nil
 	}
 
 	// Nếu không có trong Redis, truy vấn từ cơ sở dữ liệu
@@ -172,16 +164,20 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 		log.Printf("Lỗi khi lưu dữ liệu vào Redis: %v", err)
 	}
 
-	// Lọc dữ liệu theo ngày
+	return filterAccommodationStatusesByDate(statuses, fromDate, toDate), nil
+}
+
+// Hàm lọc danh sách phòng theo khoảng thời gian
+func filterAccommodationStatusesByDate(statuses []models.AccommodationStatus, fromDate, toDate time.Time) []models.AccommodationStatus {
 	var filteredStatuses []models.AccommodationStatus
 	for _, status := range statuses {
-		if (status.FromDate.After(fromDate) || status.FromDate.Equal(fromDate)) &&
-			(status.ToDate.Before(toDate) || status.ToDate.Equal(toDate)) {
-			filteredStatuses = append(filteredStatuses, status)
+		// Nếu có giao nhau với khoảng tìm kiếm thì bỏ qua
+		if !(status.ToDate.Before(fromDate) || status.FromDate.After(toDate)) {
+			continue
 		}
+		filteredStatuses = append(filteredStatuses, status)
 	}
-
-	return filteredStatuses, nil
+	return filteredStatuses
 }
 
 func GetAccBookingDates(c *gin.Context) {
