@@ -7,6 +7,7 @@ import (
 	"new/routes"
 	"new/services"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -41,9 +42,14 @@ func main() {
 	// Khởi ws
 	m := melody.New()
 
-	c := cron.New()
-	_, err = c.AddFunc("52 12 * * *", func() {
-		now := time.Now().UTC
+	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+
+		panic(err)
+	}
+	c := cron.New(cron.WithLocation(loc))
+	_, err = c.AddFunc("0 1 * * *", func() { // Chạy lúc 1h sáng theo giờ Việt Nam
+		now := time.Now().In(loc)
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)
 	})
@@ -73,10 +79,6 @@ func main() {
 
 	router.GET("/ws", func(c *gin.Context) {
 		m.HandleRequest(c.Writer, c.Request)
-	})
-
-	m.HandleMessage(func(s *melody.Session, msg []byte) {
-		m.Broadcast(msg)
 	})
 
 	router.Use(func(c *gin.Context) {
