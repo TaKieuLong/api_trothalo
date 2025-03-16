@@ -701,13 +701,6 @@ func ChangeOrderStatus(c *gin.Context) {
 							"data": err.Error(),
 						})
 						return
-					} else {
-						c.JSON(http.StatusOK, gin.H{
-							"code": 1,
-							"mess": "Cập nhật doanh thu người dùng thành công sau xóa hóa đơn",
-							"data": userRevenue,
-						})
-						return
 					}
 				} else {
 

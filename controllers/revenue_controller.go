@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"new/config"
 	"new/models"
-	"new/services"
 	"strings"
 	"time"
 
@@ -149,19 +148,16 @@ func GetTotal(c *gin.Context) {
 		return
 	}
 
-	// Lấy tham số lọc
-	nameFilter := c.Query("name") // Lọc chung cho name, email và phone
+	nameFilter := c.Query("name")
 
 	var users []models.User
 
-	query := config.DB.Where("role = ?", 2) // Chỉ lấy người dùng có role = 2
+	query := config.DB.Where("role = ?", 2)
 
-	// Thêm điều kiện lọc nếu nameFilter không rỗng
 	if nameFilter != "" {
 		query = query.Where("name ILIKE ? OR email ILIKE ? OR phone_number ILIKE ?", "%"+nameFilter+"%", "%"+nameFilter+"%", "%"+nameFilter+"%")
 	}
 
-	// Thực hiện truy vấn lấy danh sách người dùng
 	if err := query.Find(&users).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách người dùng"})
 		return
@@ -245,19 +241,71 @@ func GetTotal(c *gin.Context) {
 }
 
 func GetToday(c *gin.Context) {
-	revenues, err := services.GetTodayUserRevenue()
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		return
+	}
+
+	if currentUserRole != 2 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		return
+	}
+
+	now := time.Now()
+	year, month, _ := now.Date()
+	loc := now.Location()
+	firstDay := time.Date(year, month, 1, 0, 0, 0, 0, loc)
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, loc)
+
+	var revenues []models.UserRevenue
+	if err := config.DB.
+		Where("user_id = ? ", currentUserID).
+		Find(&revenues).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 0,
-			"mess": "Không thể lấy doanh thu của ngày hôm nay",
+			"mess": "Không thể lấy doanh thu của người dùng",
 			"err":  err.Error(),
 		})
 		return
 	}
 
+	revenueMap := make(map[string]models.UserRevenue)
+	for _, rev := range revenues {
+		dateStr := rev.Date.Format("2006-01-02")
+		revenueMap[dateStr] = rev
+	}
+
+	var result []gin.H
+	for d := firstDay; !d.After(lastDay); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		if rev, ok := revenueMap[dateStr]; ok {
+			result = append(result, gin.H{
+				"date":        dateStr,
+				"order_count": rev.OrderCount,
+				"revenue":     rev.Revenue,
+				"user_id":     rev.UserID,
+			})
+		} else {
+			result = append(result, gin.H{
+				"date":        dateStr,
+				"order_count": 0,
+				"revenue":     0,
+				"user_id":     currentUserID,
+			})
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
 		"mess": "Lấy doanh thu của người dùng thành công",
-		"data": revenues,
+		"data": result,
 	})
 }
