@@ -41,10 +41,9 @@ func main() {
 	// Khởi ws
 	m := melody.New()
 
-	loc := time.UTC
-	c := cron.New(cron.WithLocation(loc))
-	_, err = c.AddFunc("30 12 * * *", func() { // Lịch chạy 12h UTC hàng ngày
-		now := time.Now().In(loc)
+	c := cron.New()
+	_, err = c.AddFunc("48 12 * * *", func() {
+		now := time.Now().UTC()
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)
 	})
