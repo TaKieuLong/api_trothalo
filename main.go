@@ -42,20 +42,19 @@ func main() {
 	m := melody.New()
 
 	// Khởi tạo cron job
-	c := cron.New()
-
-	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
-	time.Local = loc
-	_, err = c.AddFunc("0 0 * * *", func() {
+	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		panic(fmt.Sprintf("Lỗi khi load múi giờ: %v", err))
+	}
+	c := cron.New(cron.WithLocation(loc))
+	_, err = c.AddFunc("15 0 * * *", func() {
 		now := time.Now().In(loc)
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)
 	})
-
 	if err != nil {
 		panic(fmt.Sprintf("Lỗi khi thêm cron job: %v", err))
 	}
-
 	c.Start()
 
 	recreateUserTable()
