@@ -171,8 +171,14 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 func filterAccommodationStatusesByDate(statuses []models.AccommodationStatus, fromDate, toDate time.Time) []models.AccommodationStatus {
 	var filteredStatuses []models.AccommodationStatus
 	for _, status := range statuses {
+		// Chuẩn hóa thời gian để tránh sai lệch múi giờ
+		fromDate = fromDate.Truncate(24 * time.Hour)
+		toDate = toDate.Truncate(24 * time.Hour)
+		statusFromDate := status.FromDate.Truncate(24 * time.Hour)
+		statusToDate := status.ToDate.Truncate(24 * time.Hour)
+
 		// Nếu có giao nhau với khoảng tìm kiếm thì bỏ qua
-		if !(status.ToDate.Before(fromDate) || status.FromDate.After(toDate)) {
+		if !(statusToDate.Before(fromDate) || statusFromDate.After(toDate)) {
 			continue
 		}
 		filteredStatuses = append(filteredStatuses, status)
