@@ -170,15 +170,16 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 // Hàm lọc danh sách phòng theo khoảng thời gian
 func filterAccommodationStatusesByDate(statuses []models.AccommodationStatus, fromDate, toDate time.Time) []models.AccommodationStatus {
 	var filteredStatuses []models.AccommodationStatus
+	fromDate = fromDate.Truncate(24 * time.Hour)
+	toDate = toDate.Truncate(24 * time.Hour)
 	for _, status := range statuses {
 		// Chuẩn hóa thời gian để tránh sai lệch múi giờ
-		fromDate = fromDate.Truncate(24 * time.Hour)
-		toDate = toDate.Truncate(24 * time.Hour)
 		statusFromDate := status.FromDate.Truncate(24 * time.Hour)
 		statusToDate := status.ToDate.Truncate(24 * time.Hour)
 
-		// Nếu có giao nhau với khoảng tìm kiếm thì bỏ qua
-		if !(statusToDate.Before(fromDate) || statusFromDate.After(toDate)) {
+		// Nếu có giao nhau với khoảng tìm kiếm thì loại bỏ
+		if !(toDate.Before(statusFromDate) || fromDate.After(statusToDate)) {
+			// Nếu bị chồng lấn, không đưa vào danh sách
 			continue
 		}
 		filteredStatuses = append(filteredStatuses, status)
@@ -1023,7 +1024,12 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 	filteredAccommodations := make([]models.Accommodation, 0)
 	for _, acc := range allAccommodations {
-		if !isMatch(acc, typeFilter, nameFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter, benefitIDs, statusMap) {
+		// Loại bỏ các accommodation đã bị đặt chồng lấn
+		if _, exists := statusMap[acc.ID]; exists {
+			continue
+		}
+
+		if !isMatch(acc, typeFilter, nameFilter, statusFilter, provinceFilter, districtFilter, numBedFilter, numToletFilter, peopleFilter, numFilter, []int{}, statusMap) {
 			continue
 		}
 		filteredAccommodations = append(filteredAccommodations, acc)
