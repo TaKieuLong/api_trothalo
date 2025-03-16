@@ -48,7 +48,7 @@ func main() {
 		panic(err)
 	}
 	c := cron.New(cron.WithLocation(loc))
-	_, err = c.AddFunc("15 1 * * *", func() { // Chạy lúc 1h sáng theo giờ Việt Nam
+	_, err = c.AddFunc("26 1 * * *", func() { // Chạy lúc 1h sáng theo giờ Việt Nam
 		now := time.Now().In(loc)
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)

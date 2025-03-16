@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	_ "time/tzdata"
 
 	"new/config"
 	"new/models"
@@ -15,9 +16,14 @@ import (
 // GetTodayUserRevenue lấy danh sách doanh thu trong ngày hôm nay
 func GetTodayUserRevenue() ([]models.UserRevenue, error) {
 	var revenues []models.UserRevenue
-	today := time.Now().Format("2006-01-02")
+	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		return nil, fmt.Errorf("❌ Lỗi khi tải múi giờ: %w", err)
+	}
 
-	err := config.DB.Where("date = ?", today).Find(&revenues).Error
+	today := time.Now().In(loc).Format("2006-01-02")
+
+	err = config.DB.Where("date = ?", today).Find(&revenues).Error
 	if err != nil {
 		return nil, fmt.Errorf("❌ Lỗi khi truy vấn doanh thu ngày hiện tại: %w", err)
 	}
