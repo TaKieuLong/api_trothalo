@@ -42,20 +42,15 @@ func main() {
 	m := melody.New()
 
 	loc := time.UTC
-	// Khởi tạo cron job
 	c := cron.New(cron.WithLocation(loc))
-
-	time.Local = loc
-	_, err = c.AddFunc("22 0 * * *", func() {
+	_, err = c.AddFunc("30 12 * * *", func() { // Lịch chạy 12h UTC hàng ngày
 		now := time.Now().In(loc)
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)
 	})
-
 	if err != nil {
 		panic(fmt.Sprintf("Lỗi khi thêm cron job: %v", err))
 	}
-
 	c.Start()
 
 	recreateUserTable()
