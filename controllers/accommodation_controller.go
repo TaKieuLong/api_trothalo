@@ -1315,12 +1315,9 @@ func GetAccommodationDetail(c *gin.Context) {
 					Longitude:        acc.Longitude,
 					Latitude:         acc.Latitude,
 					User: Actor{
-						Name:          acc.User.Name,
-						Email:         acc.User.Email,
-						PhoneNumber:   acc.User.PhoneNumber,
-						BankShortName: acc.User.Banks[0].BankShortName,
-						AccountNumber: acc.User.Banks[0].AccountNumber,
-						BankName:      acc.User.Banks[0].BankName,
+						Name:        acc.User.Name,
+						Email:       acc.User.Email,
+						PhoneNumber: acc.User.PhoneNumber,
 					},
 				}
 				c.JSON(http.StatusOK, gin.H{
@@ -1383,12 +1380,9 @@ func GetAccommodationDetail(c *gin.Context) {
 		Longitude:        accommodation.Longitude,
 		Latitude:         accommodation.Latitude,
 		User: Actor{
-			Name:          accommodation.User.Name,
-			Email:         accommodation.User.Email,
-			PhoneNumber:   accommodation.User.PhoneNumber,
-			BankShortName: accommodation.User.Banks[0].BankShortName,
-			AccountNumber: accommodation.User.Banks[0].AccountNumber,
-			BankName:      accommodation.User.Banks[0].BankName,
+			Name:        accommodation.User.Name,
+			Email:       accommodation.User.Email,
+			PhoneNumber: accommodation.User.PhoneNumber,
 		},
 	}
 

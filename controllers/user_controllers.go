@@ -624,3 +624,35 @@ func (u UserController) GetReceptionistByID(c *gin.Context) {
 		},
 	})
 }
+
+// Get Bank SA
+func (u UserController) GetBankSuperAdmin(c *gin.Context) {
+	var user models.User
+
+	type SABank struct {
+		UserBanks []Bank `json:"banks"`
+	}
+
+	err := u.DB.Table("users").
+		Where("users.role = ?", 1).
+		First(&user).Error
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy tài khoản SA"})
+		return
+	}
+
+	var bank []Bank
+	u.DB.Where("user_id = ?", user.ID).Find(&bank)
+
+	// userResponse := SABank{
+	// 	UserBanks: bank}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy thông tin tài khoản SA thành công",
+		"data": gin.H{
+			"sabank": bank,
+		},
+	})
+}
