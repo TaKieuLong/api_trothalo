@@ -45,14 +45,12 @@ func main() {
 
 	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
 	if err != nil {
-
 		panic(err)
 	}
-	now := time.Now().In(loc)
-	log.Printf("aca", now)
+	log.Println("time", time.Now().In(loc).Format("2006-01-02"))
 
 	c := cron.New(cron.WithLocation(loc))
-	_, err = c.AddFunc("32 1 * * *", func() { // Chạy lúc 1h sáng theo giờ Việt Nam
+	_, err = c.AddFunc("42 1 * * *", func() { // Chạy lúc 1h sáng theo giờ Việt Nam
 		now := time.Now().In(loc)
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)

@@ -16,6 +16,7 @@ import (
 // GetTodayUserRevenue lấy danh sách doanh thu trong ngày hôm nay
 func GetTodayUserRevenue() ([]models.UserRevenue, error) {
 	var revenues []models.UserRevenue
+
 	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
 	if err != nil {
 		return nil, fmt.Errorf("❌ Lỗi khi tải múi giờ: %w", err)
