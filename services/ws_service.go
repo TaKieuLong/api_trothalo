@@ -73,14 +73,15 @@ func UpdateUserAmounts(m *melody.Melody) error {
 	tx := db.Begin()
 
 	for _, rev := range revenues {
+		adjustedRevenue := rev.Revenue * 0.7
+
 		if err := tx.Model(&models.User{}).
 			Where("id = ?", rev.UserID).
-			Update("amount", gorm.Expr("amount + ?", rev.Revenue)).Error; err != nil {
+			Update("amount", gorm.Expr("amount + ?", adjustedRevenue)).Error; err != nil {
 			tx.Rollback() // Nếu có lỗi, rollback transaction
 			log.Printf("❌ Lỗi cập nhật amount cho user %d: %v\n", rev.UserID, err)
 			return err
 		}
-
 		log.Printf("✅ Cập nhật thành công user_id %d: +%.2f\n", rev.UserID, rev.Revenue)
 
 		//thông báo
