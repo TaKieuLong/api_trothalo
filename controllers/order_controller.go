@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type OrderUserResponse struct {
@@ -666,6 +668,67 @@ func ChangeOrderStatus(c *gin.Context) {
 	}
 
 	if req.Status == 2 {
+		if order.Status == 1 {
+			var invoice models.Invoice
+			if err := config.DB.Where("order_id = ?", order.ID).First(&invoice).Error; err == nil {
+				// Xóa invoice
+				if err := config.DB.Delete(&invoice).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"code": 0,
+						"mess": "Lỗi khi xóa hóa đơn",
+						"data": err.Error(),
+					})
+					return
+				}
+
+				today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Local)
+
+				var userRevenue models.UserRevenue
+				if err := config.DB.Where("user_id = ? AND date = ?", invoice.AdminID, today).First(&userRevenue).Error; err == nil {
+					newRevenue := userRevenue.Revenue - invoice.TotalAmount
+					newOrderCount := userRevenue.OrderCount - 1
+					if newOrderCount < 0 {
+						newOrderCount = 0
+					}
+
+					if err := config.DB.Model(&userRevenue).Updates(map[string]interface{}{
+						"revenue":     newRevenue,
+						"order_count": newOrderCount,
+					}).Error; err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{
+							"code": 0,
+							"mess": "Lỗi khi cập nhật doanh thu người dùng sau xóa hóa đơn",
+							"data": err.Error(),
+						})
+						return
+					} else {
+						c.JSON(http.StatusOK, gin.H{
+							"code": 1,
+							"mess": "Cập nhật doanh thu người dùng thành công sau xóa hóa đơn",
+							"data": userRevenue,
+						})
+						return
+					}
+				} else {
+
+					c.JSON(http.StatusNotFound, gin.H{
+						"code": 0,
+						"mess": "Không tìm thấy doanh thu người dùng trong ngày",
+						"data": nil,
+					})
+					return
+				}
+			} else {
+
+				c.JSON(http.StatusNotFound, gin.H{
+					"code": 0,
+					"mess": "Không tìm thấy invoice cho đơn hàng này",
+					"data": nil,
+				})
+				return
+			}
+		}
+
 		if len(order.RoomID) > 0 {
 			for _, room := range order.Room {
 				var roomStatus models.RoomStatus
@@ -712,8 +775,35 @@ func ChangeOrderStatus(c *gin.Context) {
 			return
 		}
 
-		if err := services.UpdateDailyRevenue(); err != nil {
-			log.Printf("Lỗi khi cập nhật doanh thu hàng ngày: %v", err)
+		today := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.Local)
+
+		var userRevenue models.UserRevenue
+		if err := config.DB.Where("user_id = ? AND date = ?", invoice.AdminID, today).First(&userRevenue).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+
+				newUserRevenue := models.UserRevenue{
+					UserID:     invoice.AdminID,
+					Date:       today,
+					Revenue:    invoice.TotalAmount,
+					OrderCount: 1,
+				}
+				if err := config.DB.Create(&newUserRevenue).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo doanh thu người dùng"})
+					return
+				}
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi truy vấn doanh thu người dùng"})
+				return
+			}
+		} else {
+
+			if err := config.DB.Model(&userRevenue).Updates(map[string]interface{}{
+				"revenue":     userRevenue.Revenue + invoice.TotalAmount,
+				"order_count": userRevenue.OrderCount + 1,
+			}).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi cập nhật doanh thu người dùng"})
+				return
+			}
 		}
 
 	}
