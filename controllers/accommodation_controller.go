@@ -172,14 +172,14 @@ func filterAccommodationStatusesByDate(statuses []models.AccommodationStatus, fr
 	var filteredStatuses []models.AccommodationStatus
 	fromDate = fromDate.Truncate(24 * time.Hour)
 	toDate = toDate.Truncate(24 * time.Hour)
+
 	for _, status := range statuses {
 		// Chuẩn hóa thời gian để tránh sai lệch múi giờ
 		statusFromDate := status.FromDate.Truncate(24 * time.Hour)
 		statusToDate := status.ToDate.Truncate(24 * time.Hour)
 
 		// Nếu có giao nhau với khoảng tìm kiếm thì loại bỏ
-		if !(toDate.Before(statusFromDate) && fromDate.Before(statusFromDate)) || !(toDate.After(statusToDate) && fromDate.After(statusToDate)) {
-			// Nếu bị chồng lấn, không đưa vào danh sách
+		if !(toDate.Before(statusFromDate) || fromDate.After(statusToDate)) {
 			continue
 		}
 		filteredStatuses = append(filteredStatuses, status)
@@ -912,6 +912,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 	if fromDateStr != "" {
 		fromDate, err = time.Parse("02/01/2006", fromDateStr)
+
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
 			return
