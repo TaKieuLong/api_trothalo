@@ -180,9 +180,9 @@ func filterAccommodationStatusesByDate(statuses []models.AccommodationStatus, fr
 
 		// Nếu có giao nhau với khoảng tìm kiếm thì loại bỏ
 		if !(toDate.Before(statusFromDate) || fromDate.After(statusToDate)) {
-			continue
+			filteredStatuses = append(filteredStatuses, status)
 		}
-		filteredStatuses = append(filteredStatuses, status)
+
 	}
 	return filteredStatuses
 }
@@ -935,7 +935,13 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 	statusMap := make(map[uint]bool)
 	for _, status := range statuses {
-		statusMap[status.AccommodationID] = true
+		statusFromDate := status.FromDate.Truncate(24 * time.Hour)
+		statusToDate := status.ToDate.Truncate(24 * time.Hour)
+
+		if !(toDate.Before(statusFromDate) || fromDate.After(statusToDate)) {
+			statusMap[status.AccommodationID] = true
+			log.Printf("❌ Phòng %d bị đặt từ %s đến %s", status.AccommodationID, statusFromDate.Format("2006-01-02"), statusToDate.Format("2006-01-02"))
+		}
 	}
 
 	// Redis cache key

@@ -131,9 +131,9 @@ func filterRoomStatusesByDate(statuses []models.RoomStatus, fromDate, toDate tim
 	var filteredStatuses []models.RoomStatus
 	for _, status := range statuses {
 		if !(status.ToDate.Before(fromDate) || status.FromDate.After(toDate)) {
-			continue
+			filteredStatuses = append(filteredStatuses, status)
 		}
-		filteredStatuses = append(filteredStatuses, status)
+		
 	}
 	return filteredStatuses
 }
