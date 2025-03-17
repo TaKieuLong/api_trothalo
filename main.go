@@ -41,14 +41,13 @@ func main() {
 	// Khởi ws
 	m := melody.New()
 
-	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
-	if err != nil {
-		panic(err)
-	}
+	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
+	now := time.Now().In(loc)
+	fmt.Println(":", now)
 
-	c := cron.New(cron.WithLocation(loc))
-	_, err = c.AddFunc("0 2 * * *", func() { // Chạy mỗi phút
-		now := time.Now().In(loc)
+	c := cron.New()
+	_, err = c.AddFunc("0 0 * * *", func() {
+		now := time.Now()
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)
 	})

@@ -22,7 +22,7 @@ func GetTodayUserRevenue() ([]models.UserRevenue, error) {
 		return nil, fmt.Errorf("❌ Lỗi khi tải múi giờ: %w", err)
 	}
 
-	today := time.Now().In(loc).Format("2006-01-02")
+	today := time.Now().In(loc).AddDate(0, 0, -1).Format("2006-01-02")
 
 	err = config.DB.Where("date = ?", today).Find(&revenues).Error
 	if err != nil {
