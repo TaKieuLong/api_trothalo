@@ -178,7 +178,7 @@ func filterAccommodationStatusesByDate(statuses []models.AccommodationStatus, fr
 		statusToDate := status.ToDate.Truncate(24 * time.Hour)
 
 		// Nếu có giao nhau với khoảng tìm kiếm thì loại bỏ
-		if !(toDate.Before(statusFromDate) || fromDate.After(statusToDate)) {
+		if !(toDate.Before(statusFromDate) && fromDate.Before(statusFromDate)) || !(toDate.After(statusToDate) && fromDate.After(statusToDate)) {
 			// Nếu bị chồng lấn, không đưa vào danh sách
 			continue
 		}
