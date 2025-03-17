@@ -940,7 +940,6 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 
 		if !(toDate.Before(statusFromDate) || fromDate.After(statusToDate)) {
 			statusMap[status.AccommodationID] = true
-			log.Printf("❌ Phòng %d bị đặt từ %s đến %s", status.AccommodationID, statusFromDate.Format("2006-01-02"), statusToDate.Format("2006-01-02"))
 		}
 	}
 
