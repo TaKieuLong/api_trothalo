@@ -649,3 +649,53 @@ func (u UserController) GetBankSuperAdmin(c *gin.Context) {
 		},
 	})
 }
+
+// get Profile
+func (u UserController) GetProfile(c *gin.Context) {
+	var user models.User
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	id, _, err := GetUserIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		return
+	}
+
+	if err := u.DB.First(&user, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		return
+	}
+
+	var banks []Bank
+	for _, bank := range user.Banks {
+		banks = append(banks, Bank{
+			BankName:      bank.BankName,
+			AccountNumber: bank.AccountNumber,
+			BankShortName: bank.BankShortName,
+		})
+	}
+
+	userResponse := UserResponse{
+		UserID:           user.ID,
+		UserName:         user.Name,
+		UserEmail:        user.Email,
+		UserVerified:     user.IsVerified,
+		UserPhone:        user.PhoneNumber,
+		UserRole:         user.Role,
+		UserAvatar:       user.Avatar,
+		UserBanks:        banks,
+		UserStatus:       user.Status,
+		DateOfBirth:      user.DateOfBirth,
+		Amount:           user.Amount,
+		AccommodationIDs: user.AccommodationIDs,
+		CreatedAt:        user.CreatedAt,
+		UpdatedAt:        user.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy người dùng thành công", "data": userResponse})
+}
