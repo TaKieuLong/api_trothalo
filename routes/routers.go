@@ -115,8 +115,8 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 	v1.GET("/revenue", controllers.GetTotalRevenue)
 	v1.GET("/revenue/detail", controllers.GetTotal)
 	v1.GET("/today", controllers.GetToday)
-	v1.GET("/todayUser", controllers.GetTodayUser)
-	v1.GET("/userRevenue", controllers.GetUserRevene)
+	v1.GET("/todayUser", middlewares.AuthMiddleware(1), controllers.GetTodayUser)
+	v1.GET("/userRevenue", middlewares.AuthMiddleware(1), controllers.GetUserRevene)
 
 	//Đơn rút tiền
 	v1.POST("/createWithdrawalHistory", controllers.CreateWithdrawalHistory)
