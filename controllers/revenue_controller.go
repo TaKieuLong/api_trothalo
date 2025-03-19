@@ -7,6 +7,8 @@ import (
 	"new/config"
 	"new/models"
 	"new/services"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +23,19 @@ type RevenueResponse struct {
 	MonthlyRevenue       []MonthRevenue `json:"monthlyRevenue"`
 	VAT                  float64        `json:"vat"`
 	ActualMonthlyRevenue float64        `json:"actualMonthlyRevenue"`
+}
+
+type UserRevenueResponse struct {
+	ID         uint    `json:"id"`
+	Date       string  `json:"date"`
+	OrderCount int     `json:"order_count"`
+	Revenue    float64 `json:"revenue"`
+	User       struct {
+		ID          uint   `json:"id"`
+		Name        string `json:"name"`
+		Email       string `json:"email"`
+		PhoneNumber string `json:"phone_number"`
+	} `json:"user"`
 }
 
 func GetTotalRevenue(c *gin.Context) {
@@ -326,5 +341,117 @@ func GetTodayUser(c *gin.Context) {
 		"code": 1,
 		"mess": "Lấy doanh thu của người dùng thành công",
 		"data": revenues,
+	})
+}
+
+func GetUserRevene(c *gin.Context) {
+
+	fromDateStr := c.Query("fromDate")
+	toDateStr := c.Query("toDate")
+	nameFilter := c.Query("name")
+	pageStr := c.Query("page")
+	limitStr := c.Query("limit")
+
+	page := 0
+	limit := 10
+
+	if pageStr != "" {
+		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
+			page = parsedPage
+		}
+	}
+
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	dbQuery := config.DB.Preload("User")
+
+	if fromDateStr != "" {
+		fromDate, err := time.Parse("02/01/2006", fromDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "fromDate không hợp lệ, định dạng: dd/mm/yyyy"})
+			return
+		}
+		dbQuery = dbQuery.Where("date >= ?", fromDate)
+	}
+
+	if toDateStr != "" {
+		toDate, err := time.Parse("02/01/2006", toDateStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "toDate không hợp lệ, định dạng: dd/mm/yyyy"})
+			return
+		}
+		dbQuery = dbQuery.Where("date <= ?", toDate)
+	}
+
+	var revenues []models.UserRevenue
+	if err := dbQuery.Find(&revenues).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 0,
+			"mess": "Không thể lấy doanh thu của người dùng",
+			"err":  err.Error(),
+		})
+		return
+	}
+
+	var responses []UserRevenueResponse
+	for _, rev := range revenues {
+		var resp UserRevenueResponse
+		resp.ID = rev.ID
+		resp.Date = rev.Date.Format("2006-01-02")
+		resp.OrderCount = rev.OrderCount
+		resp.Revenue = rev.Revenue
+
+		resp.User.ID = rev.User.ID
+		resp.User.Name = rev.User.Name
+		resp.User.Email = rev.User.Email
+		resp.User.PhoneNumber = rev.User.PhoneNumber
+
+		responses = append(responses, resp)
+	}
+
+	if nameFilter != "" {
+		var filtered []UserRevenueResponse
+		normalizedFilter := removeDiacritics(strings.ToLower(strings.ReplaceAll(nameFilter, " ", "")))
+		for _, resp := range responses {
+			normalizedName := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.Name, " ", "")))
+			normalizedPhone := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.PhoneNumber, " ", "")))
+			if strings.Contains(normalizedName, normalizedFilter) || strings.Contains(normalizedPhone, normalizedFilter) {
+				filtered = append(filtered, resp)
+			}
+		}
+		responses = filtered
+	}
+
+	sort.Slice(responses, func(i, j int) bool {
+		t1, _ := time.Parse("2006-01-02", responses[i].Date)
+		t2, _ := time.Parse("2006-01-02", responses[j].Date)
+		return t1.After(t2)
+	})
+
+	total := len(responses)
+	start := page * limit
+	end := start + limit
+
+	if start >= total {
+		responses = []UserRevenueResponse{}
+	} else if end > total {
+		responses = responses[start:]
+	} else {
+		responses = responses[start:end]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy doanh thu của người dùng thành công",
+		"data": responses,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+		},
 	})
 }
