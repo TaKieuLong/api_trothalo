@@ -26,6 +26,7 @@ type WithdrawalHistoryResponse struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	User      Actor     `json:"user"`
+	Reason    string    `json:"reason"`
 }
 
 // Bỏ dấu viết thường
@@ -144,6 +145,7 @@ func GetWithdrawalHistory(c *gin.Context) {
 			Status:    w.Status,
 			CreatedAt: w.CreatedAt,
 			UpdatedAt: w.UpdatedAt,
+			Reason:    w.Reason,
 			User: Actor{
 				Name:        w.User.Name,
 				Email:       w.User.Email,
