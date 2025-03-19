@@ -46,7 +46,7 @@ func main() {
 	fmt.Println(":", now)
 
 	c := cron.New()
-	_, err = c.AddFunc("0 0 * * *", func() {
+	_, err = c.AddFunc("22 0 * * *", func() {
 		now := time.Now()
 		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
 		services.UpdateUserAmounts(m)

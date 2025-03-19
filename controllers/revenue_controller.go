@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"new/config"
 	"new/models"
+	"new/services"
 	"strings"
 	"time"
 
@@ -307,5 +308,23 @@ func GetToday(c *gin.Context) {
 		"code": 1,
 		"mess": "Lấy doanh thu của người dùng thành công",
 		"data": result,
+	})
+}
+
+func GetTodayUser(c *gin.Context) {
+	revenues, err := services.GetTodayUserRevenue()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 0,
+			"mess": "Lỗi khi lấy doanh thu của người dùng",
+			"err":  err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 1,
+		"mess": "Lấy doanh thu của người dùng thành công",
+		"data": revenues,
 	})
 }
