@@ -252,6 +252,7 @@ func ConfirmWithdrawalHistory(c *gin.Context) {
 	var input struct {
 		ID     uint   `json:"id" binding:"required"`
 		Status string `json:"status" binding:"required"`
+		Reason string `json:"reason"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -280,7 +281,16 @@ func ConfirmWithdrawalHistory(c *gin.Context) {
 		}
 	}
 
+	if input.Status == "2" && strings.TrimSpace(input.Reason) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Phải có lý do khi hủy giao dịch (Status = 2)"})
+		return
+	}
+
 	withdrawal.Status = input.Status
+	if input.Status == "2" {
+		withdrawal.Reason = input.Reason
+	}
+
 	if err := config.DB.Save(&withdrawal).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái", "err": err.Error()})
 		return
