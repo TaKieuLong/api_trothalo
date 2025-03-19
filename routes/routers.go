@@ -115,6 +115,11 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 	v1.GET("/revenue/detail", controllers.GetTotal)
 	v1.GET("/today", controllers.GetToday)
 
+	//Đơn rút tiền
+	v1.POST("/createWithdrawalHistory", controllers.CreateWithdrawalHistory)
+	v1.GET("/getWithdrawalHistory", controllers.GetWithdrawalHistory)
+	v1.POST("/confirmWithdrawalHistory", controllers.ConfirmWithdrawalHistory)
+
 	v1.POST("/img/multi-upload", func(c *gin.Context) {
 		form, er := c.MultipartForm()
 		if er != nil {
