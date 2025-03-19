@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"time"
+
 	"new/config"
 	_ "new/docs"
 	"new/routes"
 	"new/services"
-	"time"
-	_ "time/tzdata"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -18,51 +20,49 @@ import (
 )
 
 func recreateUserTable() {
-
-	// if err := config.DB.AutoMigrate(&models.Room{}, &models.Benefit{}, &models.User{}, models.Rate{}, models.Order{}, models.Invoice{}, models.Bank{}, models.Accommodation{}, models.AccommodationStatus{}, models.BankFake{}, models.UserDiscount{}, models.Discount{}, models.Holiday{}, models.RoomStatus{}); err != nil {
-	// 	panic("Failed to migrate tables: " + err.Error())
-	// }
-
+	// Nếu cần, thực hiện AutoMigrate ở đây
 }
 
 func main() {
 	router := gin.Default()
 
-	err := config.LoadEnv()
-	if err != nil {
+	// Load biến môi trường
+	if err := config.LoadEnv(); err != nil {
 		panic("Failed to load .env file")
 	}
 
+	// Kết nối database và Cloudinary
 	config.ConnectDB()
-
-	// Khởi tạo Cloudinary
 	config.ConnectCloudinary()
 
-	// Khởi ws
+	// Khởi tạo WebSocket (Melody)
 	m := melody.New()
 
 	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
 	now := time.Now().In(loc)
-	fmt.Println(":", now)
+	fmt.Println("Current time:", now)
 
+	// Cron job đã có (ví dụ: chạy lúc 0h mỗi ngày)
 	c := cron.New()
-	_, err = c.AddFunc("22 0 * * *", func() {
+	_, err := c.AddFunc("0 0 * * *", func() {
 		now := time.Now()
-		fmt.Println("Đang chạy UpdateUserAmounts vào lúc:", now)
+		fmt.Println("Running UpdateUserAmounts at:", now)
 		services.UpdateUserAmounts(m)
 	})
 	if err != nil {
-		panic(fmt.Sprintf("Lỗi khi thêm cron job: %v", err))
+		panic(fmt.Sprintf("Cron job error: %v", err))
 	}
 	c.Start()
 
 	recreateUserTable()
 
+	// Kết nối Redis
 	redisCli, err := config.ConnectRedis()
 	if err != nil {
 		panic("Failed to connect to Redis!")
 	}
 
+	// Cấu hình CORS
 	configCors := cors.DefaultConfig()
 	configCors.AddAllowHeaders("Authorization")
 	configCors.AllowCredentials = true
@@ -70,23 +70,39 @@ func main() {
 	configCors.AllowOriginFunc = func(origin string) bool {
 		return true
 	}
-
 	router.Use(cors.New(configCors))
 
+	// Setup các routes của ứng dụng
 	routes.SetupRoutes(router, config.DB, redisCli, config.Cloudinary, m)
 
+	// Endpoint WebSocket
 	router.GET("/ws", func(c *gin.Context) {
 		m.HandleRequest(c.Writer, c.Request)
 	})
 
-	router.Use(func(c *gin.Context) {
-		c.Next()
-		for key, value := range c.Writer.Header() {
-			fmt.Println(key, value)
-		}
-	})
-
+	// Endpoint Swagger
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+	router.GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	// Goroutine tự động gọi endpoint /ping mỗi 5 phút
+	go func() {
+		pingURL := "https://backend.trothalo.click/ping"
+		for {
+			resp, err := http.Get(pingURL)
+			if err != nil {
+				fmt.Println("Error pinging /ping endpoint:", err)
+			} else {
+				body, _ := ioutil.ReadAll(resp.Body)
+				resp.Body.Close()
+				fmt.Println("Ping response:", string(body))
+			}
+			time.Sleep(5 * time.Minute)
+		}
+	}()
+
+	// Chạy server
 	router.Run(":8083")
 }
