@@ -1,52 +1,38 @@
 package controllers
 
 import (
-	"net/http"
-	"net/url"
+	"log"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"strconv"
 	"time"
 
+	"strings"
+
 	"github.com/gin-gonic/gin"
 )
 
-// HolidayResponse định nghĩa cấu trúc phản hồi cho kỳ nghỉ
-type HolidayResponse struct {
-	ID        uint      `json:"id"`
-	Name      string    `json:"name"`
-	FromDate  string    `json:"fromDate"`
-	ToDate    string    `json:"toDate"`
-	Price     int       `json:"price"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
-
-// CreateHolidayRequest định nghĩa yêu cầu tạo kỳ nghỉ
-type CreateHolidayRequest struct {
-	ID       uint   `json:"id"`
-	Name     string `json:"name" binding:"required"`
-	FromDate string `json:"fromDate" binding:"required"`
-	ToDate   string `json:"toDate" binding:"required"`
-	Price    int    `json:"price" binding:"required"`
-}
-
 // GetHolidays lấy tất cả kỳ nghỉ
 func GetHolidays(c *gin.Context) {
-	var holidays []models.Holiday
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
 
-	if err := config.DB.Find(&holidays).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách kỳ nghỉ"})
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	_, currentUserRole, err := services.GetUserIDFromToken(tokenString)
+	if err != nil {
+		response.Unauthorized(c)
 		return
 	}
 
 	pageStr := c.Query("page")
 	limitStr := c.Query("limit")
-	nameFilter := c.Query("name")
-	priceStr := c.Query("price")
-	fromDateStr := c.Query("fromDate")
-	toDateStr := c.Query("toDate")
+
 	page := 0
 	limit := 10
 
@@ -61,185 +47,329 @@ func GetHolidays(c *gin.Context) {
 			limit = parsedLimit
 		}
 	}
-	var holidayResponses []HolidayResponse
-	tx := config.DB.Model(&models.Holiday{})
-	if nameFilter != "" {
-		decodedNameFilter, err := url.QueryUnescape(nameFilter)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể giải mã tham số name"})
-			return
-		}
-		tx = tx.Where("name ILIKE ?", "%"+decodedNameFilter+"%")
-	}
-	if priceStr != "" {
-		price, err := strconv.ParseFloat(priceStr, 64)
-		if err == nil {
-			tx = tx.Where("price = ?", price)
-		}
-	}
-	if fromDateStr != "" {
-		fromDateComparable, err := ConvertDateToComparableFormat(fromDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng fromDate"})
-			return
-		}
 
-		if toDateStr != "" {
-			toDateComparable, err := ConvertDateToComparableFormat(toDateStr)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng toDate"})
-				return
-			}
-			tx = tx.Where("SUBSTRING(from_date, 7, 4) || SUBSTRING(from_date, 4, 2) || SUBSTRING(from_date, 1, 2) >= ? AND SUBSTRING(to_date, 7, 4) || SUBSTRING(to_date, 4, 2) || SUBSTRING(to_date, 1, 2) <= ?", fromDateComparable, toDateComparable)
-		} else {
-			tx = tx.Where("SUBSTRING(from_date, 7, 4) || SUBSTRING(from_date, 4, 2) || SUBSTRING(from_date, 1, 2) >= ?", fromDateComparable)
-		}
+	// Tạo cache key dựa trên role
+	var cacheKey string
+	if currentUserRole == 2 {
+		cacheKey = "holidays:admin"
+	} else if currentUserRole == 3 {
+		cacheKey = "holidays:receptionist"
+	} else {
+		cacheKey = "holidays:all"
 	}
-	var totalHolidays int64
-	if err := tx.Count(&totalHolidays).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể đếm số lượng ngày lễ"})
-		return
-	}
-	tx = tx.Order("updated_at desc")
 
-	if err := tx.Offset(page * limit).Limit(limit).Find(&holidays).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách ngày lễ"})
+	// Kết nối Redis
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		response.ServerError(c)
 		return
 	}
 
+	var allHolidays []dto.HolidayResponse
+
+	// Lấy dữ liệu từ Redis
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allHolidays); err != nil || len(allHolidays) == 0 {
+		tx := config.DB.Model(&models.Holiday{})
+
+		var holidays []models.Holiday
+		if err := tx.Find(&holidays).Error; err != nil {
+			response.ServerError(c)
+			return
+		}
+
+		for _, holiday := range holidays {
+			allHolidays = append(allHolidays, dto.HolidayResponse{
+				ID:        holiday.ID,
+				Name:      holiday.Name,
+				FromDate:  holiday.FromDate,
+				ToDate:    holiday.ToDate,
+				Price:     holiday.Price,
+				CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
+				UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+			})
+		}
+
+		// Lưu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allHolidays, 60*time.Minute); err != nil {
+			log.Printf("Error caching holidays: %v", err)
+		}
+	}
+
+	total := len(allHolidays)
+	start := page * limit
+	end := start + limit
+	if start >= total {
+		allHolidays = []dto.HolidayResponse{}
+	} else if end > total {
+		allHolidays = allHolidays[start:]
+	} else {
+		allHolidays = allHolidays[start:end]
+	}
+
+	response.Success(c, gin.H{
+		"data": allHolidays,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+		},
+	})
+}
+
+// CreateHoliday tạo một kỳ nghỉ mới
+func CreateHoliday(c *gin.Context) {
+	var request dto.CreateHolidayRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, "Lỗi khi ràng buộc dữ liệu: "+err.Error())
+		return
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	_, currentUserRole, err := services.GetUserIDFromToken(tokenString)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	if currentUserRole != 2 && currentUserRole != 3 {
+		response.Forbidden(c)
+		return
+	}
+
+	fromDate, err := time.Parse("2006-01-02 15:04:05", request.FromDate)
+	if err != nil {
+		response.ValidationError(c, "Định dạng ngày bắt đầu không hợp lệ")
+		return
+	}
+
+	toDate, err := time.Parse("2006-01-02 15:04:05", request.ToDate)
+	if err != nil {
+		response.ValidationError(c, "Định dạng ngày kết thúc không hợp lệ")
+		return
+	}
+
+	if toDate.Before(fromDate) {
+		response.ValidationError(c, "Ngày kết thúc phải sau ngày bắt đầu")
+		return
+	}
+
+	holiday := models.Holiday{
+		Name:     request.Name,
+		FromDate: fromDate.Format("2006-01-02 15:04:05"),
+		ToDate:   toDate.Format("2006-01-02 15:04:05"),
+		Price:    request.Price,
+	}
+
+	if err := config.DB.Create(&holiday).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	// Xóa cache
+	rdb, err := config.ConnectRedis()
+	if err == nil {
+		iter := rdb.Scan(config.Ctx, 0, "holidays:*", 0).Iterator()
+		for iter.Next(config.Ctx) {
+			rdb.Del(config.Ctx, iter.Val())
+		}
+	}
+
+	response.Success(c, dto.HolidayResponse{
+		ID:        holiday.ID,
+		Name:      holiday.Name,
+		FromDate:  holiday.FromDate,
+		ToDate:    holiday.ToDate,
+		Price:     holiday.Price,
+		CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+	})
+}
+
+func GetDetailHoliday(c *gin.Context) {
+	var holiday models.Holiday
+	if err := config.DB.Where("id = ?", c.Param("id")).First(&holiday).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	response.Success(c, dto.HolidayResponse{
+		ID:        holiday.ID,
+		Name:      holiday.Name,
+		FromDate:  holiday.FromDate,
+		ToDate:    holiday.ToDate,
+		Price:     holiday.Price,
+		CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+	})
+}
+
+// UpdateHoliday cập nhật một kỳ nghỉ
+func UpdateHoliday(c *gin.Context) {
+	var request dto.CreateHolidayRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, "Lỗi khi ràng buộc dữ liệu: "+err.Error())
+		return
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	_, currentUserRole, err := services.GetUserIDFromToken(tokenString)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	if currentUserRole != 2 && currentUserRole != 3 {
+		response.Forbidden(c)
+		return
+	}
+
+	var holiday models.Holiday
+	if err := config.DB.Where("id = ?", c.Param("id")).First(&holiday).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	fromDate, err := time.Parse("2006-01-02 15:04:05", request.FromDate)
+	if err != nil {
+		response.ValidationError(c, "Định dạng ngày bắt đầu không hợp lệ")
+		return
+	}
+
+	toDate, err := time.Parse("2006-01-02 15:04:05", request.ToDate)
+	if err != nil {
+		response.ValidationError(c, "Định dạng ngày kết thúc không hợp lệ")
+		return
+	}
+
+	if toDate.Before(fromDate) {
+		response.ValidationError(c, "Ngày kết thúc phải sau ngày bắt đầu")
+		return
+	}
+
+	holiday.Name = request.Name
+	holiday.FromDate = fromDate.Format("2006-01-02 15:04:05")
+	holiday.ToDate = toDate.Format("2006-01-02 15:04:05")
+	holiday.Price = request.Price
+	holiday.UpdatedAt = time.Now()
+
+	if err := config.DB.Save(&holiday).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	// Xóa cache
+	rdb, err := config.ConnectRedis()
+	if err == nil {
+		iter := rdb.Scan(config.Ctx, 0, "holidays:*", 0).Iterator()
+		for iter.Next(config.Ctx) {
+			rdb.Del(config.Ctx, iter.Val())
+		}
+	}
+
+	response.Success(c, dto.HolidayResponse{
+		ID:        holiday.ID,
+		Name:      holiday.Name,
+		FromDate:  holiday.FromDate,
+		ToDate:    holiday.ToDate,
+		Price:     holiday.Price,
+		CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+	})
+}
+
+func DeleteHoliday(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	_, currentUserRole, err := services.GetUserIDFromToken(tokenString)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	if currentUserRole != 2 && currentUserRole != 3 {
+		response.Forbidden(c)
+		return
+	}
+
+	var holiday models.Holiday
+	if err := config.DB.Where("id = ?", c.Param("id")).First(&holiday).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	if err := config.DB.Delete(&holiday).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	// Xóa cache
+	rdb, err := config.ConnectRedis()
+	if err == nil {
+		iter := rdb.Scan(config.Ctx, 0, "holidays:*", 0).Iterator()
+		for iter.Next(config.Ctx) {
+			rdb.Del(config.Ctx, iter.Val())
+		}
+	}
+
+	response.Success(c, nil)
+}
+
+func GetHolidaysByDateRange(c *gin.Context) {
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		response.ValidationError(c, "Ngày bắt đầu không hợp lệ")
+		return
+	}
+
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		response.ValidationError(c, "Ngày kết thúc không hợp lệ")
+		return
+	}
+
+	if end.Before(start) {
+		response.ValidationError(c, "Ngày kết thúc phải sau ngày bắt đầu")
+		return
+	}
+
+	var holidays []models.Holiday
+	if err := config.DB.Where("from_date BETWEEN ? AND ?", start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05")).Find(&holidays).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	var holidayResponses []dto.HolidayResponse
 	for _, holiday := range holidays {
-		holidayResponses = append(holidayResponses, HolidayResponse{
+		holidayResponses = append(holidayResponses, dto.HolidayResponse{
 			ID:        holiday.ID,
 			Name:      holiday.Name,
 			FromDate:  holiday.FromDate,
 			ToDate:    holiday.ToDate,
 			Price:     holiday.Price,
-			CreatedAt: holiday.CreatedAt,
-			UpdatedAt: holiday.UpdatedAt,
+			CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
+			UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy danh sách kỳ nghỉ thành công", "data": holidayResponses, "pagination": gin.H{
-		"page":  page,
-		"limit": limit,
-		"total": totalHolidays,
-	}})
-}
-
-// CreateHoliday tạo một kỳ nghỉ mới
-func CreateHoliday(c *gin.Context) {
-	var request CreateHolidayRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
-		return
-	}
-	fromDate, err := time.Parse(layout, request.FromDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng ngày bắt đầu không hợp lệ"})
-		return
-	}
-	toDate, err := time.Parse(layout, request.ToDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng ngày kết thúc không hợp lệ"})
-		return
-	}
-
-	if toDate.Before(fromDate) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày kết thúc phải sau ngày bắt đầu"})
-		return
-	}
-	holiday := models.Holiday{
-		Name:      request.Name,
-		FromDate:  request.FromDate,
-		ToDate:    request.ToDate,
-		Price:     request.Price,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	if err := config.DB.Create(&holiday).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo kỳ nghỉ", "detail": err})
-		return
-	}
-
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		cacheKey := "holidays:all"
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo kỳ nghỉ thành công", "data": holiday})
-}
-func GetDetailHoliday(c *gin.Context) {
-	var holiday models.Holiday
-	if err := config.DB.Where("id = ?", c.Param("id")).First(&holiday).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "message": "Không tìm thấy ngày lễ!"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 1, "message": "Lấy thành công chi tiết ngày lễ!", "data": holiday})
-}
-
-// UpdateHoliday cập nhật một kỳ nghỉ
-func UpdateHoliday(c *gin.Context) {
-	var holiday models.Holiday
-	var request CreateHolidayRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
-		return
-	}
-	if err := config.DB.First(&holiday, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy ngày lễ"})
-		return
-	}
-
-	holiday.Name = request.Name
-	holiday.FromDate = request.FromDate
-	holiday.ToDate = request.ToDate
-	holiday.Price = request.Price
-	holiday.UpdatedAt = time.Now()
-
-	if err := config.DB.Save(&holiday).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật kỳ nghỉ"})
-		return
-	}
-
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		cacheKey := "holidays:all"
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật kỳ nghỉ thành công", "data": holiday})
-}
-
-func DeleteHoliday(c *gin.Context) {
-	var request struct {
-		IDs []uint `json:"ids"`
-	}
-
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
-		return
-	}
-	if len(request.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không có ID nào được cung cấp"})
-		return
-	}
-
-	if err := config.DB.Delete(&models.Holiday{}, request.IDs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể xóa các kỳ nghỉ"})
-		return
-	}
-
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		cacheKey := "holidays:all"
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Xóa kỳ nghỉ thành công"})
+	response.Success(c, holidayResponses)
 }

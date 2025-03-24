@@ -6,38 +6,16 @@ import (
 	"log"
 	"net/http"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
+	"new/validator"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
-
-type RateResponse struct {
-	ID              uint      `json:"id"`
-	AccommodationID uint      `json:"accommodationId"`
-	Comment         string    `json:"comment"`
-	Star            int       `json:"star"`
-	CreateAt        time.Time `json:"createAt"`
-	UpdateAt        time.Time `json:"updateAt"`
-	User            UserInfo  `json:"user"`
-}
-
-type RateUpdateResponse struct {
-	ID              uint      `json:"id"`
-	AccommodationID uint      `json:"accommodationId"`
-	Comment         string    `json:"comment"`
-	Star            int       `json:"star"`
-	CreateAt        time.Time `json:"createAt"`
-	UpdateAt        time.Time `json:"updateAt"`
-}
-
-type UserInfo struct {
-	ID     uint   `json:"id"`
-	Name   string `json:"name"`
-	Avatar string `json:"avatar"`
-}
 
 func GetAllRates(c *gin.Context) {
 	accommodationIdFilter := c.DefaultQuery("accommodationId", "")
@@ -59,16 +37,16 @@ func GetAllRates(c *gin.Context) {
 	// Lấy dữ liệu từ Redis
 	err = services.GetFromRedis(config.Ctx, rdb, cacheKey, &rates)
 	if err == nil && len(rates) > 0 {
-		var rateResponses []RateResponse
+		var rateResponses []dto.RateResponse
 		for _, rate := range rates {
-			rateResponse := RateResponse{
+			rateResponse := dto.RateResponse{
 				ID:              rate.ID,
 				AccommodationID: rate.AccommodationID,
 				Comment:         rate.Comment,
 				Star:            rate.Star,
-				CreateAt:        rate.CreateAt,
-				UpdateAt:        rate.UpdateAt,
-				User: UserInfo{
+				CreatedAt:       rate.CreatedAt,
+				UpdatedAt:       rate.UpdatedAt,
+				User: dto.UserInfo{
 					ID:     rate.User.ID,
 					Name:   rate.User.Name,
 					Avatar: rate.User.Avatar,
@@ -93,16 +71,16 @@ func GetAllRates(c *gin.Context) {
 		return
 	}
 
-	var rateResponses []RateResponse
+	var rateResponses []dto.RateResponse
 	for _, rate := range rates {
-		rateResponse := RateResponse{
+		rateResponse := dto.RateResponse{
 			ID:              rate.ID,
 			AccommodationID: rate.AccommodationID,
 			Comment:         rate.Comment,
 			Star:            rate.Star,
-			CreateAt:        rate.CreateAt,
-			UpdateAt:        rate.UpdateAt,
-			User: UserInfo{
+			CreatedAt:       rate.CreatedAt,
+			UpdatedAt:       rate.UpdatedAt,
+			User: dto.UserInfo{
 				ID:     rate.User.ID,
 				Name:   rate.User.Name,
 				Avatar: rate.User.Avatar,
@@ -125,25 +103,32 @@ func GetAllRates(c *gin.Context) {
 }
 
 func CreateRate(c *gin.Context) {
-	var rate models.Rate
-	if err := c.ShouldBindJSON(&rate); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+	var request dto.CreateRateRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, "Lỗi khi ràng buộc dữ liệu: "+err.Error())
 		return
 	}
 
-	var existingRate models.Rate
-	if err := config.DB.Where("user_id = ? AND accommodation_id = ?", rate.UserID, rate.AccommodationID).First(&existingRate).Error; err == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Bạn đã đánh giá lưu trú này trước đó"})
+	rate := models.Rate{
+		AccommodationID: request.AccommodationID,
+		Comment:         request.Comment,
+		Star:            request.Star,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	if err := validator.ValidateRate(&rate); err != nil {
+		response.Error(c, 0, err.Error())
 		return
 	}
 
 	if err := config.DB.Create(&rate).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo đánh giá", "error": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
 	if err := services.UpdateAccommodationRating(rate.AccommodationID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update accommodation rating"})
+		response.Error(c, 0, "Failed to update accommodation rating")
 		return
 	}
 
@@ -156,72 +141,81 @@ func CreateRate(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey2)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Tạo đánh giá thành công", "data": rate})
+	response.Success(c, rate)
 }
 
 func GetRateDetail(c *gin.Context) {
 	id := c.Param("id")
 	var rate models.Rate
 	if err := config.DB.Preload("User").First(&rate, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Đánh giá không tồn tại", "error": err.Error()})
+		response.NotFound(c)
 		return
 	}
 
-	rateResponse := RateResponse{
+	rateResponse := dto.RateResponse{
 		ID:              rate.ID,
 		AccommodationID: rate.AccommodationID,
 		Comment:         rate.Comment,
 		Star:            rate.Star,
-		CreateAt:        rate.CreateAt,
-		UpdateAt:        rate.UpdateAt,
-		User: UserInfo{
+		CreatedAt:       rate.CreatedAt,
+		UpdatedAt:       rate.UpdatedAt,
+		User: dto.UserInfo{
 			ID:     rate.User.ID,
 			Name:   rate.User.Name,
 			Avatar: rate.User.Avatar,
 		},
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy thông tin đánh giá thành công", "data": rateResponse})
+	response.Success(c, rateResponse)
+}
+
+func DeleteRate(c *gin.Context) {
+	id := c.Param("id")
+
+	var rate models.Rate
+	if err := config.DB.First(&rate, id).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	if err := config.DB.Delete(&rate).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "Xóa đánh giá thành công"})
 }
 
 func UpdateRate(c *gin.Context) {
-	var rateInput struct {
-		ID      uint   `json:"id"`
-		Comment string `json:"comment"`
-		Star    int    `json:"star"`
-	}
-
-	if err := c.ShouldBindJSON(&rateInput); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+	var request dto.UpdateRateRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, "Lỗi khi ràng buộc dữ liệu: "+err.Error())
 		return
 	}
 
-	var rate models.Rate
-	if err := config.DB.First(&rate, rateInput.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Đánh giá không tồn tại", "error": err.Error()})
+	var existingRate models.Rate
+	if err := config.DB.First(&existingRate, request.ID).Error; err != nil {
+		response.NotFound(c)
 		return
 	}
 
-	rate.Comment = rateInput.Comment
-	rate.Star = rateInput.Star
+	existingRate.Comment = request.Comment
+	existingRate.Star = request.Star
+	existingRate.UpdatedAt = time.Now()
 
-	if err := config.DB.Save(&rate).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật đánh giá", "error": err.Error()})
+	if err := validator.ValidateRate(&existingRate); err != nil {
+		response.Error(c, 0, err.Error())
 		return
 	}
 
-	if err := services.UpdateAccommodationRating(rate.AccommodationID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update accommodation rating"})
+	if err := config.DB.Save(&existingRate).Error; err != nil {
+		response.ServerError(c)
 		return
 	}
 
-	rateResponse := RateUpdateResponse{
-		ID:              rate.ID,
-		AccommodationID: rate.AccommodationID,
-		Comment:         rate.Comment,
-		Star:            rate.Star,
-		CreateAt:        rate.CreateAt,
-		UpdateAt:        rate.UpdateAt,
+	if err := services.UpdateAccommodationRating(request.AccommodationID); err != nil {
+		response.Error(c, 0, "Failed to update accommodation rating")
+		return
 	}
 
 	//Xóa redis
@@ -233,5 +227,5 @@ func UpdateRate(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey2)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật đánh giá thành công", "data": rateResponse})
+	response.Success(c, existingRate)
 }

@@ -8,13 +8,15 @@ import (
 	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
+	"new/models"
+	"new/response"
 	"new/services"
+	"new/validator"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"new/models"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -112,7 +114,7 @@ func GetUserAcc(c *gin.Context) {
 		return
 	}
 
-	accUser := make([]AccommodationDetailResponse, 0)
+	accUser := make([]dto.AccommodationDetailResponse, 0)
 	for _, acc := range allAccommodations {
 		user := acc.User
 		// Lấy thông tin ngân hàng nếu có
@@ -125,7 +127,7 @@ func GetUserAcc(c *gin.Context) {
 			bankName = user.Banks[0].BankName
 		}
 
-		accUser = append(accUser, AccommodationDetailResponse{
+		accUser = append(accUser, dto.AccommodationDetailResponse{
 			ID:               acc.ID,
 			Type:             acc.Type,
 			Name:             acc.Name,
@@ -149,7 +151,7 @@ func GetUserAcc(c *gin.Context) {
 			Ward:             acc.Ward,
 			Longitude:        acc.Longitude,
 			Latitude:         acc.Latitude,
-			User: Actor{
+			User: dto.Actor{
 				Name:          user.Name,
 				Email:         user.Email,
 				PhoneNumber:   user.PhoneNumber,
@@ -620,9 +622,9 @@ func CalculateUserSalary(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
@@ -1156,4 +1158,68 @@ func GetAccommodationReceptionist(c *gin.Context) {
 		},
 	})
 
+}
+
+func GetUsers(c *gin.Context) {
+	var users []models.User
+
+	if err := config.DB.Find(&users).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, users)
+}
+
+func CreateUser(c *gin.Context) {
+	var user models.User
+
+	if err := c.ShouldBindJSON(&user); err != nil {
+		response.ValidationError(c, "Lỗi khi ràng buộc dữ liệu: "+err.Error())
+		return
+	}
+
+	if err := validator.ValidateUser(&user); err != nil {
+		response.Error(c, 0, err.Error())
+		return
+	}
+
+	user.CreatedAt = time.Now()
+	user.UpdatedAt = time.Now()
+
+	if err := config.DB.Create(&user).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, user)
+}
+
+func GetUserByID(c *gin.Context) {
+	id := c.Param("id")
+
+	var user models.User
+	if err := config.DB.First(&user, id).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	response.Success(c, user)
+}
+
+func DeleteUser(c *gin.Context) {
+	id := c.Param("id")
+
+	var user models.User
+	if err := config.DB.First(&user, id).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	if err := config.DB.Delete(&user).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "Xóa người dùng thành công"})
 }

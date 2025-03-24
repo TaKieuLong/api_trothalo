@@ -9,25 +9,12 @@ import (
 	"unicode"
 
 	"new/config"
+	"new/dto"
 	"new/models"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/text/unicode/norm"
 )
-
-type WithdrawalHistoryInput struct {
-	Amount int64 `json:"amount" binding:"required"`
-}
-
-type WithdrawalHistoryResponse struct {
-	ID        uint      `json:"id"`
-	Amount    int64     `json:"amount"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	User      Actor     `json:"user"`
-	Reason    string    `json:"reason"`
-}
 
 // Bỏ dấu viết thường
 func removeDiacritics(s string) string {
@@ -46,7 +33,6 @@ func removeDiacritics(s string) string {
 
 // CreateWithdrawalHistory tạo một lịch sử rút tiền mới
 func CreateWithdrawalHistory(c *gin.Context) {
-
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
@@ -65,7 +51,7 @@ func CreateWithdrawalHistory(c *gin.Context) {
 		return
 	}
 
-	var input WithdrawalHistoryInput
+	var input dto.CreateWithdrawalRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "err": err.Error()})
 		return
@@ -85,8 +71,11 @@ func CreateWithdrawalHistory(c *gin.Context) {
 	}
 
 	withdrawal := models.WithdrawalHistory{
-		UserID: currentUserID,
-		Amount: input.Amount,
+		UserID:          currentUserID,
+		Amount:          input.Amount,
+		BankID:          input.BankID,
+		Note:            input.Note,
+		TransactionCode: input.TransactionCode,
 	}
 
 	if err := config.DB.Create(&withdrawal).Error; err != nil {
@@ -137,35 +126,44 @@ func GetWithdrawalHistory(c *gin.Context) {
 	}
 
 	// Chuyển đổi dữ liệu thành responses
-	var responses []WithdrawalHistoryResponse
+	var responses []dto.WithdrawalHistoryResponse
 	for _, w := range withdrawals {
-		resp := WithdrawalHistoryResponse{
-			ID:        w.ID,
-			Amount:    w.Amount,
-			Status:    w.Status,
-			CreatedAt: w.CreatedAt,
-			UpdatedAt: w.UpdatedAt,
-			Reason:    w.Reason,
-			User: Actor{
+		resp := dto.WithdrawalHistoryResponse{
+			ID:              w.ID,
+			UserID:          w.UserID,
+			Amount:          w.Amount,
+			Status:          w.Status,
+			CreatedAt:       w.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:       w.UpdatedAt.Format(time.RFC3339),
+			Note:            w.Note,
+			TransactionCode: w.TransactionCode,
+			User: &dto.UserResponse{
+				ID:          w.User.ID,
 				Name:        w.User.Name,
 				Email:       w.User.Email,
 				PhoneNumber: w.User.PhoneNumber,
+				Role:        w.User.Role,
 			},
 		}
 
 		if len(w.User.Banks) > 0 {
-			resp.User.BankShortName = w.User.Banks[0].BankShortName
-			resp.User.AccountNumber = w.User.Banks[0].AccountNumber
-			resp.User.BankName = w.User.Banks[0].BankName
+			resp.User.Banks = []dto.Bank{
+				{
+					BankName:      w.User.Banks[0].BankName,
+					AccountNumber: w.User.Banks[0].AccountNumber,
+					BankShortName: w.User.Banks[0].BankShortName,
+				},
+			}
 		}
 		responses = append(responses, resp)
 	}
 
 	statusFilter := c.Query("status")
 	if statusFilter != "" {
-		var filtered []WithdrawalHistoryResponse
+		var filtered []dto.WithdrawalHistoryResponse
+		statusInt, _ := strconv.Atoi(statusFilter)
 		for _, resp := range responses {
-			if resp.Status == statusFilter {
+			if resp.Status == statusInt {
 				filtered = append(filtered, resp)
 			}
 		}
@@ -174,7 +172,7 @@ func GetWithdrawalHistory(c *gin.Context) {
 
 	nameFilter := c.Query("name")
 	if nameFilter != "" {
-		var filtered []WithdrawalHistoryResponse
+		var filtered []dto.WithdrawalHistoryResponse
 		normalizedFilter := removeDiacritics(strings.ToLower(strings.ReplaceAll(nameFilter, " ", "")))
 		for _, resp := range responses {
 			normalizedName := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.Name, " ", "")))
@@ -205,7 +203,9 @@ func GetWithdrawalHistory(c *gin.Context) {
 	}
 
 	sort.Slice(responses, func(i, j int) bool {
-		return responses[i].CreatedAt.After(responses[j].CreatedAt)
+		timeI, _ := time.Parse(time.RFC3339, responses[i].CreatedAt)
+		timeJ, _ := time.Parse(time.RFC3339, responses[j].CreatedAt)
+		return timeI.After(timeJ)
 	})
 
 	total := len(responses)
@@ -213,7 +213,7 @@ func GetWithdrawalHistory(c *gin.Context) {
 	end := start + limit
 
 	if start >= total {
-		responses = []WithdrawalHistoryResponse{}
+		responses = []dto.WithdrawalHistoryResponse{}
 	} else if end > total {
 		responses = responses[start:]
 	} else {
@@ -251,12 +251,7 @@ func ConfirmWithdrawalHistory(c *gin.Context) {
 		return
 	}
 
-	var input struct {
-		ID     uint   `json:"id" binding:"required"`
-		Status string `json:"status" binding:"required"`
-		Reason string `json:"reason"`
-	}
-
+	var input dto.UpdateWithdrawalStatusRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "err": err.Error()})
 		return
@@ -264,34 +259,13 @@ func ConfirmWithdrawalHistory(c *gin.Context) {
 
 	var withdrawal models.WithdrawalHistory
 	if err := config.DB.First(&withdrawal, input.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy đơn rút tiền", "err": err.Error()})
-		return
-	}
-
-	if input.Status == "1" {
-		var user models.User
-		if err := config.DB.First(&user, withdrawal.UserID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy user", "err": err.Error()})
-			return
-		}
-
-		user.Amount = user.Amount - withdrawal.Amount
-
-		if err := config.DB.Save(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật số dư của user", "err": err.Error()})
-			return
-		}
-	}
-
-	if input.Status == "2" && strings.TrimSpace(input.Reason) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Phải có lý do khi hủy giao dịch (Status = 2)"})
+		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy lịch sử rút tiền"})
 		return
 	}
 
 	withdrawal.Status = input.Status
-	if input.Status == "2" {
-		withdrawal.Reason = input.Reason
-	}
+	withdrawal.Note = input.Note
+	withdrawal.TransactionCode = input.TransactionCode
 
 	if err := config.DB.Save(&withdrawal).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái", "err": err.Error()})
@@ -300,6 +274,6 @@ func ConfirmWithdrawalHistory(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 1,
-		"mess": "Cập nhật trạng thái đơn rút tiền thành công",
+		"mess": "Cập nhật trạng thái thành công",
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
 	"new/services"
 	"os"
@@ -30,108 +31,6 @@ import (
 type ScoredAccommodation struct {
 	Accommodation models.Accommodation `json:"accommodation"`
 	Score         int                  `json:"score"`
-}
-
-type AccommodationRequest struct {
-	ID               uint             `json:"id"`
-	Type             int              `json:"type"`
-	Name             string           `json:"name"`
-	Address          string           `json:"address"`
-	Avatar           string           `json:"avatar"`
-	Img              json.RawMessage  `json:"img" gorm:"type:json"`
-	ShortDescription string           `json:"shortDescription"`
-	Description      string           `json:"description"`
-	Status           int              `json:"status"`
-	Num              int              `json:"num"`
-	Furniture        json.RawMessage  `json:"furniture" gorm:"type:json"`
-	Benefits         []models.Benefit `json:"benefits" gorm:"many2many:accommodation_benefits;"`
-	People           int              `json:"people"`
-	Price            int              `json:"price"`
-	TimeCheckOut     string           `json:"timeCheckOut"`
-	TimeCheckIn      string           `json:"timeCheckIn"`
-	Province         string           `json:"province"`
-	District         string           `json:"district"`
-	Ward             string           `json:"ward"`
-	Longitude        float64          `json:"longitude"`
-	Latitude         float64          `json:"latitude"`
-}
-
-type Actor struct {
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	PhoneNumber   string `json:"phoneNumber"`
-	BankName      string `json:"bankName"`
-	AccountNumber string `json:"accountNumber"`
-	BankShortName string `json:"bankShortName"`
-}
-
-type AccommodationResponse struct {
-	ID               uint   `json:"id"`
-	Type             int    `json:"type"`
-	Province         string `json:"province"`
-	Name             string `json:"name"`
-	Address          string `json:"address"`
-	CreateAt         time.Time
-	UpdateAt         time.Time
-	Avatar           string           `json:"avatar"`
-	ShortDescription string           `json:"shortDescription"`
-	Status           int              `json:"status"`
-	Num              int              `json:"num"`
-	People           int              `json:"people"`
-	Price            int              `json:"price"`
-	NumBed           int              `json:"numBed"`
-	NumTolet         int              `json:"numTolet"`
-	District         string           `json:"district"`
-	Ward             string           `json:"ward"`
-	Longitude        float64          `json:"longitude"`
-	Latitude         float64          `json:"latitude"`
-	Benefits         []models.Benefit `json:"benefits"`
-}
-
-type AccommodationResponseTest struct {
-	ID       uint             `json:"id"`
-	Type     int              `json:"type"`
-	Province string           `json:"province"`
-	Name     string           `json:"name"`
-	Status   int              `json:"status"`
-	Num      int              `json:"num"`
-	People   int              `json:"people"`
-	Price    int              `json:"price"`
-	NumBed   int              `json:"numBed"`
-	NumTolet int              `json:"numTolet"`
-	District string           `json:"district"`
-	Ward     string           `json:"ward"`
-	Benefits []models.Benefit `json:"benefits"`
-}
-
-type AccommodationDetailResponse struct {
-	ID               uint   `json:"id"`
-	Type             int    `json:"type"`
-	Province         string `json:"province"`
-	District         string `json:"district"`
-	Ward             string `json:"ward"`
-	Name             string `json:"name"`
-	Address          string `json:"address"`
-	CreateAt         time.Time
-	UpdateAt         time.Time
-	Avatar           string           `json:"avatar"`
-	ShortDescription string           `json:"shortDescription"`
-	Description      string           `json:"description"`
-	Status           int              `json:"status"`
-	User             Actor            `json:"user"`
-	Num              int              `json:"num"`
-	People           int              `json:"people"`
-	Price            int              `json:"price"`
-	NumBed           int              `json:"numBed"`
-	NumTolet         int              `json:"numTolet"`
-	Furniture        json.RawMessage  `json:"furniture" gorm:"type:json"`
-	Img              json.RawMessage  `json:"img"`
-	Benefits         []models.Benefit `json:"benefits"`
-	Rates            []RateResponse   `json:"rates"`
-	TimeCheckOut     string           `json:"timeCheckOut"`
-	TimeCheckIn      string           `json:"timeCheckIn"`
-	Longitude        float64          `json:"longitude"`
-	Latitude         float64          `json:"latitude"`
 }
 
 func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
@@ -390,7 +289,7 @@ func GetAllAccommodations(c *gin.Context) {
 			return
 		}
 
-		accommodationsResponse := make([]AccommodationDetailResponse, 0)
+		accommodationsResponse := make([]dto.AccommodationDetailResponse, 0)
 		for _, acc := range allAccommodations {
 			user := acc.User
 			// Lấy thông tin ngân hàng nếu có
@@ -403,7 +302,7 @@ func GetAllAccommodations(c *gin.Context) {
 				bankName = user.Banks[0].BankName
 			}
 
-			accommodationsResponse = append(accommodationsResponse, AccommodationDetailResponse{
+			accommodationsResponse = append(accommodationsResponse, dto.AccommodationDetailResponse{
 				ID:               acc.ID,
 				Type:             acc.Type,
 				Name:             acc.Name,
@@ -427,7 +326,7 @@ func GetAllAccommodations(c *gin.Context) {
 				Ward:             acc.Ward,
 				Longitude:        acc.Longitude,
 				Latitude:         acc.Latitude,
-				User: Actor{
+				User: dto.Actor{
 					Name:          user.Name,
 					Email:         user.Email,
 					PhoneNumber:   user.PhoneNumber,
@@ -531,9 +430,20 @@ func GetAllAccommodations(c *gin.Context) {
 	}
 
 	// Chuẩn bị response
-	accommodationsResponse := make([]AccommodationResponse, 0)
+	accommodationsResponse := make([]dto.AccommodationDetailResponse, 0)
 	for _, acc := range filteredAccommodations {
-		accommodationsResponse = append(accommodationsResponse, AccommodationResponse{
+		user := acc.User
+		// Lấy thông tin ngân hàng nếu có
+		bankShortName := ""
+		accountNumber := ""
+		bankName := ""
+		if len(user.Banks) > 0 {
+			bankShortName = user.Banks[0].BankShortName
+			accountNumber = user.Banks[0].AccountNumber
+			bankName = user.Banks[0].BankName
+		}
+
+		accommodationsResponse = append(accommodationsResponse, dto.AccommodationDetailResponse{
 			ID:               acc.ID,
 			Type:             acc.Type,
 			Name:             acc.Name,
@@ -544,15 +454,27 @@ func GetAllAccommodations(c *gin.Context) {
 			ShortDescription: acc.ShortDescription,
 			Status:           acc.Status,
 			Num:              acc.Num,
+			Furniture:        acc.Furniture,
 			People:           acc.People,
 			Price:            acc.Price,
 			NumBed:           acc.NumBed,
 			NumTolet:         acc.NumTolet,
+			Benefits:         acc.Benefits,
+			TimeCheckIn:      acc.TimeCheckIn,
+			TimeCheckOut:     acc.TimeCheckOut,
 			Province:         acc.Province,
 			District:         acc.District,
 			Ward:             acc.Ward,
 			Longitude:        acc.Longitude,
 			Latitude:         acc.Latitude,
+			User: dto.Actor{
+				Name:          user.Name,
+				Email:         user.Email,
+				PhoneNumber:   user.PhoneNumber,
+				BankShortName: bankShortName,
+				AccountNumber: accountNumber,
+				BankName:      bankName,
+			},
 		})
 	}
 
@@ -961,11 +883,11 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		// Ép kiểu sang AccommodationResponse
-		accommodationsResponse := make([]AccommodationDetailResponse, 0)
+		accommodationsResponse := make([]dto.AccommodationDetailResponse, 0)
 		for _, acc := range allAccommodations {
 			// Lấy thông tin User
 			user := acc.User
-			accommodationsResponse = append(accommodationsResponse, AccommodationDetailResponse{
+			accommodationsResponse = append(accommodationsResponse, dto.AccommodationDetailResponse{
 				ID:               acc.ID,
 				Type:             acc.Type,
 				Name:             acc.Name,
@@ -989,7 +911,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 				Ward:             acc.Ward,
 				Longitude:        acc.Longitude,
 				Latitude:         acc.Latitude,
-				User: Actor{
+				User: dto.Actor{
 					Name:          user.Name,
 					Email:         user.Email,
 					PhoneNumber:   user.PhoneNumber,
@@ -1072,9 +994,20 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	}
 
 	// Chuẩn bị response
-	accommodationsResponse := make([]AccommodationResponse, 0)
+	accommodationsResponse := make([]dto.AccommodationDetailResponse, 0)
 	for _, acc := range filteredAccommodations {
-		accommodationsResponse = append(accommodationsResponse, AccommodationResponse{
+		user := acc.User
+		// Lấy thông tin ngân hàng nếu có
+		bankShortName := ""
+		accountNumber := ""
+		bankName := ""
+		if len(user.Banks) > 0 {
+			bankShortName = user.Banks[0].BankShortName
+			accountNumber = user.Banks[0].AccountNumber
+			bankName = user.Banks[0].BankName
+		}
+
+		accommodationsResponse = append(accommodationsResponse, dto.AccommodationDetailResponse{
 			ID:               acc.ID,
 			Type:             acc.Type,
 			Name:             acc.Name,
@@ -1085,16 +1018,27 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 			ShortDescription: acc.ShortDescription,
 			Status:           acc.Status,
 			Num:              acc.Num,
+			Furniture:        acc.Furniture,
 			People:           acc.People,
 			Price:            acc.Price,
 			NumBed:           acc.NumBed,
 			NumTolet:         acc.NumTolet,
+			Benefits:         acc.Benefits,
+			TimeCheckIn:      acc.TimeCheckIn,
+			TimeCheckOut:     acc.TimeCheckOut,
 			Province:         acc.Province,
 			District:         acc.District,
 			Ward:             acc.Ward,
-			Benefits:         acc.Benefits,
 			Longitude:        acc.Longitude,
 			Latitude:         acc.Latitude,
+			User: dto.Actor{
+				Name:          user.Name,
+				Email:         user.Email,
+				PhoneNumber:   user.PhoneNumber,
+				BankShortName: bankShortName,
+				AccountNumber: accountNumber,
+				BankName:      bankName,
+			},
 		})
 	}
 
@@ -1143,7 +1087,9 @@ func CreateAccommodation(c *gin.Context) {
 	}
 	newAccommodation.UserID = currentUserID
 	newAccommodation.User = user
-	if err := c.ShouldBindJSON(&newAccommodation); err != nil {
+
+	var request dto.AccommodationRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ", "details": err.Error()})
 		return
 	}
@@ -1168,7 +1114,7 @@ func CreateAccommodation(c *gin.Context) {
 
 	var benefits []models.Benefit
 
-	for _, benefit := range newAccommodation.Benefits {
+	for _, benefit := range request.Benefits {
 		if benefit.Id != 0 {
 
 			benefits = append(benefits, benefit)
@@ -1242,7 +1188,7 @@ func CreateAccommodation(c *gin.Context) {
 			}
 		}
 	}
-	response := AccommodationDetailResponse{
+	response := dto.AccommodationDetailResponse{
 		ID:               newAccommodation.ID,
 		Type:             newAccommodation.Type,
 		Name:             newAccommodation.Name,
@@ -1258,16 +1204,12 @@ func CreateAccommodation(c *gin.Context) {
 		Price:            newAccommodation.Price,
 		NumBed:           newAccommodation.NumBed,
 		NumTolet:         newAccommodation.NumTolet,
-		Benefits:         newAccommodation.Benefits,
+		Benefits:         benefits,
 		TimeCheckIn:      newAccommodation.TimeCheckIn,
 		TimeCheckOut:     newAccommodation.TimeCheckOut,
-		Province:         newAccommodation.Province,
-		District:         newAccommodation.District,
-		Ward:             newAccommodation.Ward,
 		Longitude:        newAccommodation.Longitude,
 		Latitude:         newAccommodation.Latitude,
-
-		User: Actor{
+		User: dto.Actor{
 			Name:        user.Name,
 			Email:       user.Email,
 			PhoneNumber: user.PhoneNumber,
@@ -1302,7 +1244,7 @@ func GetAccommodationDetail(c *gin.Context) {
 					price = acc.Price
 				}
 				// Tạo response từ cache
-				response := AccommodationDetailResponse{
+				response := dto.AccommodationDetailResponse{
 					ID:               acc.ID,
 					Type:             acc.Type,
 					Name:             acc.Name,
@@ -1328,11 +1270,12 @@ func GetAccommodationDetail(c *gin.Context) {
 					Ward:             acc.Ward,
 					Longitude:        acc.Longitude,
 					Latitude:         acc.Latitude,
-					User: Actor{
+					User: dto.Actor{
 						Name:        acc.User.Name,
 						Email:       acc.User.Email,
 						PhoneNumber: acc.User.PhoneNumber,
 					},
+					Rates: convertRatesToResponse(acc.Rates),
 				}
 				c.JSON(http.StatusOK, gin.H{
 					"code": 1,
@@ -1367,7 +1310,7 @@ func GetAccommodationDetail(c *gin.Context) {
 
 		price = accommodation.Price
 	}
-	response := AccommodationDetailResponse{
+	response := dto.AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
 		Name:             accommodation.Name,
@@ -1393,11 +1336,12 @@ func GetAccommodationDetail(c *gin.Context) {
 		Ward:             accommodation.Ward,
 		Longitude:        accommodation.Longitude,
 		Latitude:         accommodation.Latitude,
-		User: Actor{
+		User: dto.Actor{
 			Name:        accommodation.User.Name,
 			Email:       accommodation.User.Email,
 			PhoneNumber: accommodation.User.PhoneNumber,
 		},
+		Rates: convertRatesToResponse(accommodation.Rates),
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1407,8 +1351,28 @@ func GetAccommodationDetail(c *gin.Context) {
 	})
 }
 
+func convertRatesToResponse(rates []models.Rate) []dto.RateResponse {
+	var rateResponses []dto.RateResponse
+	for _, rate := range rates {
+		rateResponses = append(rateResponses, dto.RateResponse{
+			ID:              rate.ID,
+			AccommodationID: rate.AccommodationID,
+			Comment:         rate.Comment,
+			Star:            rate.Star,
+			CreatedAt:       rate.CreatedAt,
+			UpdatedAt:       rate.UpdatedAt,
+			User: dto.UserInfo{
+				ID:     rate.User.ID,
+				Name:   rate.User.Name,
+				Avatar: rate.User.Avatar,
+			},
+		})
+	}
+	return rateResponses
+}
+
 func UpdateAccommodation(c *gin.Context) {
-	var request AccommodationRequest
+	var request dto.AccommodationRequest
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
@@ -1579,7 +1543,7 @@ func UpdateAccommodation(c *gin.Context) {
 
 		}
 	}
-	response := AccommodationDetailResponse{
+	response := dto.AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
 		Name:             accommodation.Name,
@@ -1601,6 +1565,14 @@ func UpdateAccommodation(c *gin.Context) {
 		TimeCheckOut:     accommodation.TimeCheckOut,
 		Longitude:        accommodation.Longitude,
 		Latitude:         accommodation.Latitude,
+		Province:         accommodation.Province,
+		District:         accommodation.District,
+		Ward:             accommodation.Ward,
+		User: dto.Actor{
+			Name:        accommodation.User.Name,
+			Email:       accommodation.User.Email,
+			PhoneNumber: accommodation.User.PhoneNumber,
+		},
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật chỗ ở thành công", "data": response})

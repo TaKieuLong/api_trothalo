@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"new/config"
+	"new/dto"
 	"new/models"
 	"new/services"
 	"os"
@@ -16,69 +17,13 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/idtoken"
 	"gorm.io/gorm"
 )
 
-type RegisterInPut struct {
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required"`
-	PhoneNumber string `json:"phoneNumber" binding:"required"`
-}
-
-type LoginInput struct {
-	Identifier string `json:"identifier" binding:"required"`
-	Password   string `json:"password" binding:"required"`
-}
-
-type Bank struct {
-	BankName      string `json:"bankName"`
-	AccountNumber string `json:"accountNumber"`
-	BankShortName string `json:"bankShortName"`
-}
-
-type UserResponse struct {
-	UserID           uint           `json:"id"`
-	UserName         string         `json:"name"`
-	UserEmail        string         `json:"email"`
-	UserVerified     bool           `json:"verified"`
-	UserPhone        string         `json:"phone"`
-	UserRole         int            `json:"role"`
-	CreatedAt        time.Time      `json:"createdAt"`
-	UpdatedAt        time.Time      `json:"updatedAt"`
-	UserStatus       int            `json:"status"`
-	UserAvatar       string         `json:"avatar"`
-	UserBanks        []Bank         `json:"banks"`
-	Children         []UserResponse `json:"children,omitempty"`
-	AdminId          *uint          `json:"adminId,omitempty"`
-	Gender           int            `json:"gender"`
-	DateOfBirth      string         `json:"dateOfBirth"`
-	Amount           int64          `json:"amount"`
-	AccommodationIDs pq.Int64Array  `json:"accommodation_ids"`
-}
-
-type UserLoginResponse struct {
-	UserID       uint      `json:"id"`
-	UserName     string    `json:"name"`
-	UserEmail    string    `json:"email"`
-	UserVerified bool      `json:"verified"`
-	UserPhone    string    `json:"phone"`
-	UserRole     int       `json:"role"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	UserStatus   int       `json:"status"`
-	UserAvatar   string    `json:"avatar"`
-	UserBanks    []Bank    `json:"banks"`
-	Gender       int       `json:"gender"`
-	DateOfBirth  string    `json:"dateOfBirth"`
-	AdminId      *uint     `json:"adminId"`
-	Amount       int64     `json:"amount"`
-}
-
 func Login(c *gin.Context) {
-	var input LoginInput
+	var input dto.LoginInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
 		return
@@ -108,18 +53,18 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 
 	// Nếu không, lấy Bank của user hiện tại
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
 		})
 	}
 
-	userResponse := UserLoginResponse{
+	userResponse := dto.UserLoginResponse{
 		UserID:       user.ID,
 		UserName:     user.Name,
 		UserEmail:    user.Email,
@@ -179,26 +124,29 @@ func VerifyEmail(c *gin.Context) {
 }
 
 func RegisterUser(c *gin.Context) {
-	var input models.User
+	var input dto.RegisterInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
 		return
 	}
 
-	user, err := services.CreateUser(input)
+	user := models.User{
+		Email:       input.Email,
+		Password:    input.Password,
+		PhoneNumber: input.PhoneNumber,
+	}
+
+	createdUser, err := services.CreateUser(user)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng ký thành công!", "data": user})
+	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng ký thành công!", "data": createdUser})
 }
 
 func ResendVerificationCode(c *gin.Context) {
-	var input struct {
-		Identifier string `json:"identifier" binding:"required"`
-	}
-
+	var input dto.ResendVerificationInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
 		return
@@ -221,10 +169,7 @@ func ResendVerificationCode(c *gin.Context) {
 }
 
 func ForgetPassword(c *gin.Context) {
-	var input struct {
-		Identifier string `json:"identifier" binding:"required"`
-	}
-
+	var input dto.ForgetPasswordInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
 		return
@@ -247,7 +192,7 @@ func ForgetPassword(c *gin.Context) {
 }
 
 func ResetPassword(c *gin.Context) {
-	var input LoginInput
+	var input dto.LoginInput
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
@@ -271,11 +216,7 @@ func ResetPassword(c *gin.Context) {
 }
 
 func VerifyCode(c *gin.Context) {
-	var input struct {
-		Email string `json:"email" binding:"required"`
-		Code  string `json:"code" binding:"required"`
-	}
-
+	var input dto.VerifyCodeInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
 		return
@@ -373,38 +314,30 @@ func GetIDFromToken(tokenString string) (uint, error) {
 	return uint(userID), nil
 }
 
-type GoogleUser struct {
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	VerifiedEmail bool   `json:"verified_email"`
-	Picture       string `json:"picture"`
-}
-
 // AuthGoogle function để xử lý yêu cầu xác thực từ Google
 func AuthGoogle(c *gin.Context) {
 	var token struct {
 		TokenId string `json:"tokenId"`
 	}
 
-	// Bind dữ liệu token từ request
 	if err := c.ShouldBindJSON(&token); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Xác minh tokenId từ Google
+
 	payload, err := verifyGoogleIDToken(token.TokenId)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Google token"})
 		return
 	}
-	// Lấy thông tin người dùng từ payload
-	googleUser := GoogleUser{
+
+	googleUser := dto.GoogleUser{
 		Name:          payload.Claims["name"].(string),
 		Email:         payload.Claims["email"].(string),
 		VerifiedEmail: payload.Claims["email_verified"].(bool),
 		Picture:       payload.Claims["picture"].(string),
 	}
-	// Kiểm tra nếu email chưa được xác thực
+
 	if !googleUser.VerifiedEmail {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Email has not been verified"})
 		return
@@ -414,19 +347,17 @@ func AuthGoogle(c *gin.Context) {
 	result := config.DB.Where("email = ?", googleUser.Email).First(&user)
 
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		// Nếu chưa có tài khoản thì tạo tài khoản mới
 		user, err = services.CreateGoogleUser(googleUser.Name, googleUser.Email, googleUser.Picture)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi tạo người dùng mới!"})
 			return
 		}
 	} else if result.Error != nil {
-		// Nếu có lỗi khi tìm kiếm người dùng
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khj tìm kiếm người dùng: " + result.Error.Error()})
 		return
 	}
 
-	userResponse := UserLoginResponse{
+	userResponse := dto.UserLoginResponse{
 		UserID:       user.ID,
 		UserName:     user.Name,
 		UserEmail:    user.Email,
@@ -439,6 +370,7 @@ func AuthGoogle(c *gin.Context) {
 		Gender:       user.Gender,
 		DateOfBirth:  user.DateOfBirth,
 	}
+
 	userInfo := services.UserInfo{
 		UserId: user.ID,
 		Role:   user.Role,
@@ -468,4 +400,24 @@ func verifyGoogleIDToken(tokenId string) (*idtoken.Payload, error) {
 		return nil, err
 	}
 	return payload, nil
+}
+
+func GoogleLogin(c *gin.Context) {
+	var input dto.GoogleUser
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		return
+	}
+
+	// ... existing code ...
+}
+
+func ResendVerification(c *gin.Context) {
+	var input dto.ResendVerificationInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		return
+	}
+
+	// ... existing code ...
 }
