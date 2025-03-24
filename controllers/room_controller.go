@@ -10,6 +10,7 @@ import (
 	"new/config"
 	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"strconv"
 	"strings"
@@ -79,14 +80,14 @@ func GetRoomBookingDates(c *gin.Context) {
 	date := c.DefaultQuery("date", "")
 
 	if roomID == "" || date == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id và date là bắt buộc"})
+		response.BadRequest(c, "id và date là bắt buộc")
 		return
 	}
 
 	layout := "01/2006"
 	parsedDate, err := time.Parse(layout, date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy"})
+		response.BadRequest(c, "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy")
 		return
 	}
 
@@ -107,7 +108,7 @@ func GetRoomBookingDates(c *gin.Context) {
 	err = db.Where("room_id = ?", roomID).Find(&statuses).Error
 	if err != nil {
 		log.Printf("Error retrieving room statuses: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy thông tin trạng thái phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -115,7 +116,7 @@ func GetRoomBookingDates(c *gin.Context) {
 	orderMap, err := getGuestBookingsForRoom(roomID)
 	if err != nil {
 		log.Printf("Error retrieving guest bookings: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy danh sách đặt phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -154,10 +155,7 @@ func GetRoomBookingDates(c *gin.Context) {
 		roomResponses = append(roomResponses, roomResponse)
 	}
 
-	// Trả về kết quả
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách phòng thành công",
+	response.Success(c, gin.H{
 		"data": roomResponses,
 	})
 }
@@ -237,14 +235,14 @@ func GetAllRooms(c *gin.Context) {
 	// Xác thực token
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 

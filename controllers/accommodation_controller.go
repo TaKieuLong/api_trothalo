@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"net/http"
 	"net/url"
 	"new/config"
 	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"os"
 	"regexp"
@@ -42,7 +42,7 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 	// Kết nối Redis
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 		return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
 	}
 
@@ -91,14 +91,14 @@ func GetAccBookingDates(c *gin.Context) {
 	date := c.DefaultQuery("date", "")
 
 	if accommodationID == "" || date == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id và date là bắt buộc"})
+		response.BadRequest(c, "id và date là bắt buộc")
 		return
 	}
 
 	layout := "01/2006"
 	parsedDate, err := time.Parse(layout, date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy"})
+		response.BadRequest(c, "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy")
 		return
 	}
 
@@ -116,7 +116,7 @@ func GetAccBookingDates(c *gin.Context) {
 	err = db.Where("accommodation_id = ?", accommodationID).Find(&statuses).Error
 	if err != nil {
 		log.Printf("Error retrieving accommodation statuses: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy thông tin trạng thái phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -124,7 +124,7 @@ func GetAccBookingDates(c *gin.Context) {
 	orderMap, err := getGuestBookings(accommodationID)
 	if err != nil {
 		log.Printf("Error retrieving guest bookings: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy danh sách đặt phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -161,9 +161,7 @@ func GetAccBookingDates(c *gin.Context) {
 		roomResponses = append(roomResponses, roomResponse)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách phòng thành công",
+	response.Success(c, gin.H{
 		"data": roomResponses,
 	})
 }
@@ -232,14 +230,14 @@ func getGuestBookings(accommodationID string) (map[string]map[string]string, err
 func GetAllAccommodations(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -256,7 +254,7 @@ func GetAllAccommodations(c *gin.Context) {
 	// Kết nối Redis
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 		return
 	}
 
@@ -277,7 +275,7 @@ func GetAllAccommodations(c *gin.Context) {
 			//Lấy data theo vai trò Receptionist (Role = 3)
 			var adminID int
 			if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil {
-				c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+				response.Forbidden(c)
 				return
 			}
 			tx = tx.Where("user_id = ?", adminID)
@@ -285,7 +283,7 @@ func GetAllAccommodations(c *gin.Context) {
 
 		// Lấy dữ liệu từ DB
 		if err := tx.Find(&allAccommodations).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách chỗ ở"})
+			response.ServerError(c)
 			return
 		}
 
@@ -478,7 +476,7 @@ func GetAllAccommodations(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response.Success(c, gin.H{
 		"code": 1,
 		"mess": "Lấy danh sách chỗ ở thành công",
 		"data": accommodationsResponse,
@@ -836,7 +834,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		fromDate, err = time.Parse("02/01/2006", fromDateStr)
 
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu fromDate không hợp lệ"})
+			response.BadRequest(c, "Dữ liệu fromDate không hợp lệ")
 			return
 		}
 	}
@@ -844,14 +842,14 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	if toDateStr != "" {
 		toDate, err = time.Parse("02/01/2006", toDateStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu toDate không hợp lệ"})
+			response.BadRequest(c, "Dữ liệu toDate không hợp lệ")
 			return
 		}
 	}
 
 	statuses, err := getAllAccommodationStatuses(c, fromDate, toDate)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy trạng thái của accommodation"})
+		response.ServerError(c)
 		return
 	}
 
@@ -869,7 +867,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	cacheKey := "accommodations:all"
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusMovedPermanently, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 	}
 
 	var allAccommodations []models.Accommodation
@@ -878,7 +876,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allAccommodations); err != nil || len(allAccommodations) == 0 {
 		// Nếu không có dữ liệu trong Redis, lấy từ Database
 		if err := loadAccommodationsFromDB(&allAccommodations); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách chỗ ở"})
+			response.ServerError(c)
 			return
 		}
 
@@ -1042,7 +1040,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response.Success(c, gin.H{
 		"code": 1,
 		"mess": "Lấy danh sách chỗ ở thành công",
 		"data": accommodationsResponse,
@@ -1065,24 +1063,24 @@ func normalizeBenefitName(name string) string {
 func CreateAccommodation(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 	var newAccommodation models.Accommodation
 	var user models.User
 	if err := config.DB.First(&user, currentUserID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+			response.BadRequest(c, "Người dùng không tồn tại")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi kiểm tra người dùng", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 	newAccommodation.UserID = currentUserID
@@ -1090,23 +1088,23 @@ func CreateAccommodation(c *gin.Context) {
 
 	var request dto.AccommodationRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ", "details": err.Error()})
+		response.BadRequest(c, "Dữ liệu đầu vào không hợp lệ")
 		return
 	}
 
 	if err := newAccommodation.ValidateType(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	if err := newAccommodation.ValidateStatus(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	imgJSON, err := json.Marshal(newAccommodation.Img)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa hình ảnh", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -1124,7 +1122,7 @@ func CreateAccommodation(c *gin.Context) {
 
 			newBenefit := models.Benefit{Name: normalizedBenefitName}
 			if err := config.DB.Where("LOWER(TRIM(name)) = ?", normalizedBenefitName).FirstOrCreate(&newBenefit).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể tạo mới tiện ích", "details": err.Error()})
+				response.ServerError(c)
 				return
 			}
 
@@ -1142,12 +1140,12 @@ func CreateAccommodation(c *gin.Context) {
 		os.Getenv("MAPBOX_KEY"),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể mã hóa địa chỉ", "details": err.Error()})
+		response.ServerError(c)
 	}
 	// Kiểm tra xem tọa độ có bị trùng không
 	var existingAccommodation models.Accommodation
 	if err := config.DB.Where("longitude = ? AND latitude = ?", longitude, latitude).First(&existingAccommodation).Error; err == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 1,
+		response.Success(c, gin.H{"code": 1,
 			"mess":              "Địa chỉ này đã được sử dụng, vui lòng nhập địa chỉ khác.",
 			"needChangeAddress": true})
 		return
@@ -1156,7 +1154,7 @@ func CreateAccommodation(c *gin.Context) {
 	newAccommodation.Latitude = latitude
 
 	if err := config.DB.Create(&newAccommodation).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo chỗ ở", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 	// Xử lý Redis cache
@@ -1188,7 +1186,7 @@ func CreateAccommodation(c *gin.Context) {
 			}
 		}
 	}
-	response := dto.AccommodationDetailResponse{
+	accommodationResponse := dto.AccommodationDetailResponse{
 		ID:               newAccommodation.ID,
 		Type:             newAccommodation.Type,
 		Name:             newAccommodation.Name,
@@ -1216,7 +1214,7 @@ func CreateAccommodation(c *gin.Context) {
 		},
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Tạo chỗ ở thành công", "data": response})
+	response.Success(c, gin.H{"code": 1, "mess": "Tạo chỗ ở thành công", "data": accommodationResponse})
 }
 
 func GetAccommodationDetail(c *gin.Context) {
@@ -1225,7 +1223,7 @@ func GetAccommodationDetail(c *gin.Context) {
 	// Kết nối Redis
 	rdb, redisErr := config.ConnectRedis()
 	if redisErr != nil {
-		c.JSON(http.StatusTemporaryRedirect, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 		return
 	}
 
@@ -1244,7 +1242,7 @@ func GetAccommodationDetail(c *gin.Context) {
 					price = acc.Price
 				}
 				// Tạo response từ cache
-				response := dto.AccommodationDetailResponse{
+				accommodationResponse := dto.AccommodationDetailResponse{
 					ID:               acc.ID,
 					Type:             acc.Type,
 					Name:             acc.Name,
@@ -1277,10 +1275,10 @@ func GetAccommodationDetail(c *gin.Context) {
 					},
 					Rates: convertRatesToResponse(acc.Rates),
 				}
-				c.JSON(http.StatusOK, gin.H{
+				response.Success(c, gin.H{
 					"code": 1,
 					"mess": "Lấy thông tin chỗ ở thành công (từ cache)",
-					"data": response,
+					"data": accommodationResponse,
 				})
 				return
 			}
@@ -1293,7 +1291,7 @@ func GetAccommodationDetail(c *gin.Context) {
 		Preload("Rates").
 		Preload("Benefits").
 		Preload("User").Preload("User.Banks").First(&accommodation, accommodationId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chỗ ở không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -1310,7 +1308,7 @@ func GetAccommodationDetail(c *gin.Context) {
 
 		price = accommodation.Price
 	}
-	response := dto.AccommodationDetailResponse{
+	accommodationResponse := dto.AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
 		Name:             accommodation.Name,
@@ -1344,10 +1342,10 @@ func GetAccommodationDetail(c *gin.Context) {
 		Rates: convertRatesToResponse(accommodation.Rates),
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response.Success(c, gin.H{
 		"code": 1,
 		"mess": "Lấy thông tin chỗ ở thành công",
-		"data": response,
+		"data": accommodationResponse,
 	})
 }
 
@@ -1375,39 +1373,39 @@ func UpdateAccommodation(c *gin.Context) {
 	var request dto.AccommodationRequest
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ", "details": err.Error()})
+		response.BadRequest(c, "Dữ liệu đầu vào không hợp lệ")
 		return
 	}
 
 	var accommodation models.Accommodation
 
 	if err := config.DB.Preload("User").Preload("Rooms").Preload("Rates").First(&accommodation, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chỗ ở không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	// Xử lý trường Img
 	imgJSON, err := json.Marshal(request.Img)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa hình ảnh", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
 	// Xử lý trường Furniture
 	furnitureJson, err := json.Marshal(request.Furniture)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa nội thất", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 	latitude, longitude, err := services.GetCoordinatesFromAddress(
@@ -1418,7 +1416,7 @@ func UpdateAccommodation(c *gin.Context) {
 		os.Getenv("MAPBOX_KEY"),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể mã hóa địa chỉ", "details": err.Error()})
+		response.ServerError(c)
 	}
 	if request.Type != -1 {
 		accommodation.Type = request.Type
@@ -1494,7 +1492,7 @@ func UpdateAccommodation(c *gin.Context) {
 
 			newBenefit := models.Benefit{Name: benefit.Name}
 			if err := config.DB.Where("name = ?", benefit.Name).FirstOrCreate(&newBenefit).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể tạo mới tiện ích", "details": err.Error()})
+				response.ServerError(c)
 				return
 			}
 			benefits = append(benefits, newBenefit)
@@ -1502,12 +1500,12 @@ func UpdateAccommodation(c *gin.Context) {
 	}
 
 	if err := config.DB.Model(&accommodation).Association("Benefits").Replace(benefits); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật tiện ích", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
 	if err := config.DB.Save(&accommodation).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật chỗ ở", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 	// Xử lý Redis cache
@@ -1543,7 +1541,7 @@ func UpdateAccommodation(c *gin.Context) {
 
 		}
 	}
-	response := dto.AccommodationDetailResponse{
+	accommodationResponse := dto.AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
 		Name:             accommodation.Name,
@@ -1575,20 +1573,20 @@ func UpdateAccommodation(c *gin.Context) {
 		},
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật chỗ ở thành công", "data": response})
+	response.Success(c, gin.H{"code": 1, "mess": "Cập nhật chỗ ở thành công", "data": accommodationResponse})
 }
 
 func ChangeAccommodationStatus(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -1598,20 +1596,20 @@ func ChangeAccommodationStatus(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu đầu vào không hợp lệ")
 		return
 	}
 
 	var accommodation models.Accommodation
 
 	if err := config.DB.First(&accommodation, input.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chỗ ở không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	accommodation.Status = input.Status
 	if err := config.DB.Save(&accommodation).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể thay đổi trạng thái chỗ ở"})
+		response.ServerError(c)
 		return
 	}
 	// Xử lý Redis cache
@@ -1641,7 +1639,7 @@ func ChangeAccommodationStatus(c *gin.Context) {
 			}
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái chỗ ở thành công", "data": accommodation})
+	response.Success(c, gin.H{"code": 1, "mess": "Thay đổi trạng thái chỗ ở thành công", "data": accommodation})
 }
 
 // Hàm lấy giá thấp nhất từ danh sách phòng

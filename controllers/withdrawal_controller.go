@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"new/config"
 	"new/dto"
 	"new/models"
+	"new/response"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/text/unicode/norm"
@@ -35,38 +35,38 @@ func removeDiacritics(s string) string {
 func CreateWithdrawalHistory(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 2 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		response.Forbidden(c)
 		return
 	}
 
 	var input dto.CreateWithdrawalRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "err": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy thông tin người dùng", "err": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
 	// Tính số tiền cho phép rút: nhỏ hơn 80% số dư hiện có của user
 	allowedWithdrawal := user.Amount * 80 / 100
 	if input.Amount >= allowedWithdrawal {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Số tiền rút phải nhỏ hơn 20% số dư của bạn"})
+		response.BadRequest(c, "Số tiền rút phải nhỏ hơn 20% số dư của bạn")
 		return
 	}
 
@@ -79,12 +79,11 @@ func CreateWithdrawalHistory(c *gin.Context) {
 	}
 
 	if err := config.DB.Create(&withdrawal).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo lịch sử rút tiền", "err": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
+	response.Success(c, gin.H{
 		"mess": "Tạo lịch sử rút tiền thành công",
 	})
 }
@@ -93,19 +92,19 @@ func GetWithdrawalHistory(c *gin.Context) {
 	// Kiểm tra header Authorization
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 1 && currentUserRole != 2 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		response.Forbidden(c)
 		return
 	}
 
@@ -117,11 +116,7 @@ func GetWithdrawalHistory(c *gin.Context) {
 	}
 
 	if err := dbQuery.Find(&withdrawals).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 0,
-			"mess": "Không thể lấy lịch sử rút tiền",
-			"err":  err.Error(),
-		})
+		response.ServerError(c)
 		return
 	}
 
@@ -220,9 +215,7 @@ func GetWithdrawalHistory(c *gin.Context) {
 		responses = responses[start:end]
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy lịch sử rút tiền thành công",
+	response.Success(c, gin.H{
 		"data": responses,
 		"pagination": gin.H{
 			"page":  page,
@@ -235,31 +228,31 @@ func GetWithdrawalHistory(c *gin.Context) {
 func ConfirmWithdrawalHistory(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	_, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 1 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		response.Forbidden(c)
 		return
 	}
 
 	var input dto.UpdateWithdrawalStatusRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "err": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var withdrawal models.WithdrawalHistory
 	if err := config.DB.First(&withdrawal, input.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy lịch sử rút tiền"})
+		response.NotFound(c)
 		return
 	}
 
@@ -268,12 +261,11 @@ func ConfirmWithdrawalHistory(c *gin.Context) {
 	withdrawal.TransactionCode = input.TransactionCode
 
 	if err := config.DB.Save(&withdrawal).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái", "err": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
+	response.Success(c, gin.H{
 		"mess": "Cập nhật trạng thái thành công",
 	})
 }

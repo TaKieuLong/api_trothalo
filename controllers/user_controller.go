@@ -1,9 +1,9 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"new/config"
 	"new/dto"
 	"new/models"
@@ -30,6 +30,111 @@ func NewUserController(mySQL *gorm.DB, redisCli *redis.Client) UserController {
 		DB:    mySQL,
 		Redis: redisCli,
 	}
+}
+
+// filterUsers lọc danh sách users theo các tiêu chí
+func filterUsers(users []models.User, statusStr, name, roleStr string) []models.User {
+	var filteredUsers []models.User
+	for _, user := range users {
+		// Lọc theo status
+		if statusStr != "" {
+			status, _ := strconv.Atoi(statusStr)
+			if user.Status != status {
+				continue
+			}
+		}
+
+		// Lọc theo name
+		if name != "" && !strings.Contains(strings.ToLower(user.Name), strings.ToLower(name)) &&
+			!strings.Contains(strings.ToLower(user.PhoneNumber), strings.ToLower(name)) &&
+			!strings.Contains(strings.ToLower(user.Email), strings.ToLower(name)) {
+			continue
+		}
+
+		// Lọc theo role
+		if roleStr != "" {
+			role, _ := strconv.Atoi(roleStr)
+			if user.Role != role {
+				continue
+			}
+		}
+
+		filteredUsers = append(filteredUsers, user)
+	}
+	return filteredUsers
+}
+
+// convertToUserResponse chuyển đổi User model sang UserResponse DTO
+func convertToUserResponse(user models.User) dto.UserResponse {
+	var banks []dto.Bank
+	for _, bank := range user.Banks {
+		banks = append(banks, dto.Bank{
+			BankName:      bank.BankName,
+			AccountNumber: bank.AccountNumber,
+			BankShortName: bank.BankShortName,
+		})
+	}
+
+	var childrenResponses []dto.UserResponse
+	for _, child := range user.Children {
+		childrenResponses = append(childrenResponses, convertToUserResponse(child))
+	}
+
+	return dto.UserResponse{
+		ID:               user.ID,
+		Name:             user.Name,
+		Email:            user.Email,
+		PhoneNumber:      user.PhoneNumber,
+		Role:             user.Role,
+		CreatedAt:        user.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        user.UpdatedAt.Format(time.RFC3339),
+		Banks:            banks,
+		Children:         childrenResponses,
+		Status:           user.Status,
+		IsVerified:       user.IsVerified,
+		Avatar:           user.Avatar,
+		Amount:           user.Amount,
+		AccommodationIDs: user.AccommodationIDs,
+		AdminId:          user.AdminId,
+	}
+}
+
+// getUsersFromCacheOrDB lấy danh sách users từ cache hoặc database
+func (u UserController) getUsersFromCacheOrDB(cacheKey string, currentUserID uint, currentUserRole int) ([]models.User, error) {
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		log.Printf("Không thể kết nối Redis: %v", err)
+	}
+
+	var allUsers []models.User
+
+	// Kiểm tra cache
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allUsers); err != nil || len(allUsers) == 0 {
+		// Nếu không có dữ liệu trong cache, truy vấn từ DB
+		query := u.DB.Preload("Banks").Preload("Children")
+
+		if currentUserRole == 3 {
+			var adminID uint
+			if err := u.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil {
+				return nil, err
+			}
+
+			query = query.Where("role = 3 AND admin_id = ?", adminID)
+		} else if currentUserRole == 2 {
+			query = query.Where("role = 3 AND admin_id = ?", currentUserID)
+		}
+
+		if err := query.Find(&allUsers).Error; err != nil {
+			return nil, err
+		}
+
+		// Lưu dữ liệu vào Redis
+		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allUsers, 10*time.Minute); err != nil {
+			log.Printf("Lỗi khi lưu danh sách người dùng vào Redis: %v", err)
+		}
+	}
+
+	return allUsers, nil
 }
 
 func (u UserController) GetUsers(c *gin.Context) {
@@ -73,71 +178,17 @@ func (u UserController) GetUsers(c *gin.Context) {
 		return
 	}
 
-	// Kết nối Redis
-	rdb, err := config.ConnectRedis()
+	// Lấy danh sách users từ cache hoặc database
+	allUsers, err := u.getUsersFromCacheOrDB(cacheKey, currentUserID, currentUserRole)
 	if err != nil {
-		log.Printf("Không thể kết nối Redis: %v", err)
+		response.ServerError(c)
+		return
 	}
 
-	var allUsers []models.User
+	// Lọc users theo các tiêu chí
+	filteredUsers := filterUsers(allUsers, statusStr, name, roleStr)
 
-	// Kiểm tra cache
-	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allUsers); err != nil || len(allUsers) == 0 {
-		// Nếu không có dữ liệu trong cache, truy vấn từ DB
-		query := u.DB.Preload("Banks").Preload("Children")
-
-		if currentUserRole == 3 {
-			var adminID int
-			if err := u.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil {
-				response.ServerError(c)
-				return
-			}
-
-			query = query.Where("role = 3 AND admin_id = ?", adminID)
-		} else if currentUserRole == 2 {
-			query = query.Where("role = 3 AND admin_id = ?", currentUserID)
-		}
-
-		if err := query.Find(&allUsers).Error; err != nil {
-			response.ServerError(c)
-			return
-		}
-
-		// Lưu dữ liệu vào Redis
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allUsers, 10*time.Minute); err != nil {
-			log.Printf("Lỗi khi lưu danh sách người dùng vào Redis: %v", err)
-		}
-	}
-
-	var filteredUsers []models.User
-	for _, user := range allUsers {
-		// Lọc theo status
-		if statusStr != "" {
-			status, _ := strconv.Atoi(statusStr)
-			if user.Status != status {
-				continue
-			}
-		}
-
-		// Lọc theo name
-		if name != "" && !strings.Contains(strings.ToLower(user.Name), strings.ToLower(name)) &&
-			!strings.Contains(strings.ToLower(user.PhoneNumber), strings.ToLower(name)) &&
-			!strings.Contains(strings.ToLower(user.Email), strings.ToLower(name)) {
-			continue
-		}
-
-		// Lọc theo role
-		if roleStr != "" {
-			role, _ := strconv.Atoi(roleStr)
-			if user.Role != role {
-				continue
-			}
-		}
-
-		filteredUsers = append(filteredUsers, user)
-	}
-
-	// Lọc và chuẩn bị response
+	// Chuyển đổi sang DTO và lọc theo quyền
 	var userResponses []dto.UserResponse
 	for _, user := range filteredUsers {
 		if currentUserRole == 1 && user.Role == 3 {
@@ -154,58 +205,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 			}
 		}
 
-		var banks []dto.Bank
-		for _, bank := range user.Banks {
-			banks = append(banks, dto.Bank{
-				BankName:      bank.BankName,
-				AccountNumber: bank.AccountNumber,
-				BankShortName: bank.BankShortName,
-			})
-		}
-
-		var childrenResponses []dto.UserResponse
-		for _, child := range user.Children {
-			var childBanks []dto.Bank
-			for _, bank := range child.Banks {
-				childBanks = append(childBanks, dto.Bank{
-					BankName:      bank.BankName,
-					AccountNumber: bank.AccountNumber,
-					BankShortName: bank.BankShortName,
-				})
-			}
-
-			childrenResponses = append(childrenResponses, dto.UserResponse{
-				ID:          child.ID,
-				Name:        child.Name,
-				Email:       child.Email,
-				PhoneNumber: child.PhoneNumber,
-				Role:        child.Role,
-				CreatedAt:   child.CreatedAt.Format(time.RFC3339),
-				UpdatedAt:   child.UpdatedAt.Format(time.RFC3339),
-				Banks:       childBanks,
-				Status:      child.Status,
-				IsVerified:  child.IsVerified,
-				Avatar:      child.Avatar,
-				Amount:      child.Amount,
-			})
-		}
-
-		userResponses = append(userResponses, dto.UserResponse{
-			ID:          user.ID,
-			Name:        user.Name,
-			Email:       user.Email,
-			PhoneNumber: user.PhoneNumber,
-			Role:        user.Role,
-			CreatedAt:   user.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:   user.UpdatedAt.Format(time.RFC3339),
-			Banks:       banks,
-			Children:    childrenResponses,
-			Status:      user.Status,
-			IsVerified:  user.IsVerified,
-			Avatar:      user.Avatar,
-			Amount:      user.Amount,
-			AdminId:     user.AdminId,
-		})
+		userResponses = append(userResponses, convertToUserResponse(user))
 	}
 
 	// Sắp xếp và phân trang
@@ -229,17 +229,33 @@ func (u UserController) GetUsers(c *gin.Context) {
 	})
 }
 
-func (u *UserController) CreateUser(c *gin.Context) {
+// handleError xử lý lỗi và trả về response phù hợp
+func handleError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		response.NotFound(c)
+	case strings.Contains(err.Error(), "duplicate key"):
+		response.BadRequest(c, "Resource already exists")
+	case strings.Contains(err.Error(), "unauthorized"):
+		response.Unauthorized(c)
+	case strings.Contains(err.Error(), "forbidden"):
+		response.Forbidden(c)
+	default:
+		response.ServerError(c)
+	}
+}
+
+func (u UserController) CreateUser(c *gin.Context) {
 	var input dto.CreateUserRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, err.Error())
 		return
 	}
 
 	// Kiểm tra email đã tồn tại chưa
 	var existingUser models.User
 	if err := config.DB.Where("email = ?", input.Email).First(&existingUser).Error; err == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email đã tồn tại"})
+		response.BadRequest(c, "Email đã tồn tại")
 		return
 	}
 
@@ -255,14 +271,14 @@ func (u *UserController) CreateUser(c *gin.Context) {
 	// Mã hóa mật khẩu
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		response.ServerError(c)
 		return
 	}
 	user.Password = string(hashedPassword)
 
 	// Tạo user trong database
 	if err := config.DB.Create(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		response.ServerError(c)
 		return
 	}
 
@@ -274,53 +290,16 @@ func (u *UserController) CreateUser(c *gin.Context) {
 			AccountNumber: input.AccountNumber,
 		}
 		if err := config.DB.Create(&bank).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create bank account"})
+			response.ServerError(c)
 			return
 		}
 	}
 
-	// Tạo response
-	userResponse := dto.UserResponse{
-		ID:          user.ID,
-		Name:        user.Name,
-		Email:       user.Email,
-		PhoneNumber: user.PhoneNumber,
-		Role:        user.Role,
-		CreatedAt:   user.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:   user.UpdatedAt.Format("2006-01-02 15:04:05"),
-		Status:      user.Status,
-		IsVerified:  user.IsVerified,
-		Avatar:      user.Avatar,
-		DateOfBirth: user.DateOfBirth,
-		Amount:      user.Amount,
-	}
-
-	c.JSON(http.StatusCreated, userResponse)
+	response.Success(c, createUserResponse(user))
 }
 
-func (u UserController) GetUserByID(c *gin.Context) {
-	id := c.Param("id")
-	userID, err := strconv.ParseUint(id, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	var user models.User
-	if err := config.DB.Preload("Banks").First(&user, userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
-
-	// Kiểm tra quyền truy cập
-	userIDFromToken := c.GetUint("userID")
-	userRoleFromToken := c.GetInt("userRole")
-	if userIDFromToken != uint(userID) && userRoleFromToken != 1 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Không có quyền truy cập thông tin người dùng khác"})
-		return
-	}
-
-	// Chuyển đổi Banks sang định dạng DTO
+// createUserResponse tạo response cho user
+func createUserResponse(user models.User) dto.UserResponse {
 	var banks []dto.Bank
 	for _, bank := range user.Banks {
 		banks = append(banks, dto.Bank{
@@ -330,89 +309,84 @@ func (u UserController) GetUserByID(c *gin.Context) {
 		})
 	}
 
-	// Chuyển đổi Children sang định dạng DTO
-	var children []dto.UserResponse
-	for _, child := range user.Children {
-		children = append(children, dto.UserResponse{
-			ID:          child.ID,
-			Name:        child.Name,
-			Email:       child.Email,
-			PhoneNumber: child.PhoneNumber,
-			Role:        child.Role,
-			CreatedAt:   child.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:   child.UpdatedAt.Format("2006-01-02 15:04:05"),
-			Status:      child.Status,
-			IsVerified:  child.IsVerified,
-			Avatar:      child.Avatar,
-			DateOfBirth: child.DateOfBirth,
-			Amount:      child.Amount,
-		})
-	}
-
-	resp := dto.UserResponse{
+	return dto.UserResponse{
 		ID:               user.ID,
 		Name:             user.Name,
 		Email:            user.Email,
 		PhoneNumber:      user.PhoneNumber,
 		Role:             user.Role,
-		CreatedAt:        user.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:        user.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:        user.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        user.UpdatedAt.Format(time.RFC3339),
 		Banks:            banks,
-		Children:         children,
 		Status:           user.Status,
 		IsVerified:       user.IsVerified,
 		Avatar:           user.Avatar,
-		DateOfBirth:      user.DateOfBirth,
 		Amount:           user.Amount,
 		AccommodationIDs: user.AccommodationIDs,
 		AdminId:          user.AdminId,
 	}
+}
 
-	c.JSON(http.StatusOK, resp)
+func (u UserController) GetUserByID(c *gin.Context) {
+	id := c.Param("id")
+	var user models.User
+	if err := config.DB.Preload("Banks").First(&user, id).Error; err != nil {
+		handleError(c, err)
+		return
+	}
+
+	// Kiểm tra quyền truy cập
+	if err := validateUserAccess(c, user.ID, user.Role); err != nil {
+		handleError(c, err)
+		return
+	}
+
+	response.Success(c, createUserResponse(user))
 }
 
 func (u UserController) UpdateUser(c *gin.Context) {
 	id := c.Param("id")
 	var input dto.UpdateUserRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, err.Error())
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		handleError(c, err)
 		return
 	}
 
 	// Cập nhật thông tin user
-	user.Name = input.Username
-	user.PhoneNumber = input.Phone
-	user.Avatar = input.Avatar
-	user.DateOfBirth = input.DateOfBirth
+	updates := map[string]interface{}{
+		"name":          input.Username,
+		"phone_number":  input.Phone,
+		"avatar":        input.Avatar,
+		"date_of_birth": input.DateOfBirth,
+		"gender":        input.Gender,
+	}
 
-	if err := config.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+	if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
+		response.ServerError(c)
 		return
 	}
 
-	// Tạo response
-	userResponse := dto.UserResponse{
-		ID:          user.ID,
-		Name:        user.Name,
-		Email:       user.Email,
-		PhoneNumber: user.PhoneNumber,
-		Role:        user.Role,
-		CreatedAt:   user.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:   user.UpdatedAt.Format("2006-01-02 15:04:05"),
-		Status:      user.Status,
-		IsVerified:  user.IsVerified,
-		Avatar:      user.Avatar,
-		DateOfBirth: user.DateOfBirth,
-		Amount:      user.Amount,
-	}
+	response.Success(c, createUserResponse(user))
+}
 
-	c.JSON(http.StatusOK, userResponse)
+// clearUserCache xóa cache của user dựa trên role
+func (u UserController) clearUserCache(currentUserID uint, currentUserRole int) {
+	rdb, redisErr := config.ConnectRedis()
+	if redisErr == nil {
+		switch currentUserRole {
+		case 1:
+			_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
+		case 3:
+			adminCacheKey := fmt.Sprintf("users:role_3:admin_%d", currentUserID)
+			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
+		}
+	}
 }
 
 func (u UserController) ChangeUserStatus(c *gin.Context) {
@@ -474,17 +448,8 @@ func (u UserController) ChangeUserStatus(c *gin.Context) {
 		return
 	}
 
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		switch currentUserRole {
-		case 1:
-			_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
-		case 3:
-			adminCacheKey := fmt.Sprintf("users:role_3:admin_%d", currentUserID)
-			_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
-		}
-	}
+	// Xóa cache
+	u.clearUserCache(currentUserID, currentUserRole)
 
 	response.Success(c, user)
 }
@@ -568,51 +533,29 @@ func (u UserController) GetBankSuperAdmin(c *gin.Context) {
 
 // get Profile
 func (u UserController) GetProfile(c *gin.Context) {
-	var user models.User
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		response.Unauthorized(c)
-		return
-	}
-
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	id, _, err := services.GetUserIDFromToken(tokenString)
+	userID, _, err := getCurrentUserInfo(c)
 	if err != nil {
-		response.Unauthorized(c)
+		handleError(c, err)
 		return
 	}
 
-	if err := u.DB.First(&user, id).Error; err != nil {
-		response.NotFound(c)
+	var user models.User
+	if err := config.DB.Preload("Banks").First(&user, userID).Error; err != nil {
+		handleError(c, err)
 		return
 	}
 
-	var banks []dto.Bank
-	for _, bank := range user.Banks {
-		banks = append(banks, dto.Bank{
-			BankName:      bank.BankName,
-			AccountNumber: bank.AccountNumber,
-			BankShortName: bank.BankShortName,
-		})
-	}
+	response.Success(c, createUserResponse(user))
+}
 
-	userResponse := dto.UserResponse{
-		ID:               user.ID,
-		Name:             user.Name,
-		Email:            user.Email,
-		PhoneNumber:      user.PhoneNumber,
-		Role:             user.Role,
-		CreatedAt:        user.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:        user.UpdatedAt.Format(time.RFC3339),
-		Banks:            banks,
-		Status:           user.Status,
-		IsVerified:       user.IsVerified,
-		Avatar:           user.Avatar,
-		Amount:           user.Amount,
-		AccommodationIDs: user.AccommodationIDs,
+// paginateUsers phân trang danh sách users
+func paginateUsers(users []dto.UserResponse, page, limit int) []dto.UserResponse {
+	start := page * limit
+	end := start + limit
+	if end > len(users) {
+		end = len(users)
 	}
-
-	response.Success(c, userResponse)
+	return users[start:end]
 }
 
 func (u UserController) GetUserList(c *gin.Context) {
@@ -626,67 +569,64 @@ func (u UserController) GetUserList(c *gin.Context) {
 
 	// Lấy tổng số user
 	if err := config.DB.Model(&models.User{}).Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get total users"})
+		response.ServerError(c)
 		return
 	}
 
 	// Lấy danh sách user với phân trang
 	if err := config.DB.Offset(offset).Limit(limit).Find(&users).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get users"})
+		response.ServerError(c)
 		return
 	}
 
 	// Chuyển đổi sang DTO
 	var userResponses []dto.UserResponse
 	for _, user := range users {
-		userResponses = append(userResponses, dto.UserResponse{
-			ID:          user.ID,
-			Name:        user.Name,
-			Email:       user.Email,
-			PhoneNumber: user.PhoneNumber,
-			Role:        user.Role,
-			CreatedAt:   user.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt:   user.UpdatedAt.Format("2006-01-02 15:04:05"),
-			Status:      user.Status,
-			IsVerified:  user.IsVerified,
-			Avatar:      user.Avatar,
-			DateOfBirth: user.DateOfBirth,
-			Amount:      user.Amount,
-		})
+		userResponses = append(userResponses, createUserResponse(user))
 	}
 
-	response := dto.UserListResponse{
-		Data:  userResponses,
+	// Phân trang
+	paginatedUsers := paginateUsers(userResponses, page, limit)
+
+	response.Success(c, dto.UserListResponse{
+		Data:  paginatedUsers,
 		Page:  page,
 		Limit: limit,
 		Total: total,
-	}
-
-	c.JSON(http.StatusOK, response)
+	})
 }
 
 func (u UserController) GetUserByEmail(c *gin.Context) {
 	email := c.Param("email")
 	var user models.User
-	if err := config.DB.Where("email = ?", email).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	if err := config.DB.Preload("Banks").Where("email = ?", email).First(&user).Error; err != nil {
+		handleError(c, err)
 		return
 	}
 
-	userResponse := dto.UserResponse{
-		ID:          user.ID,
-		Name:        user.Name,
-		Email:       user.Email,
-		PhoneNumber: user.PhoneNumber,
-		Role:        user.Role,
-		CreatedAt:   user.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt:   user.UpdatedAt.Format("2006-01-02 15:04:05"),
-		Status:      user.Status,
-		IsVerified:  user.IsVerified,
-		Avatar:      user.Avatar,
-		DateOfBirth: user.DateOfBirth,
-		Amount:      user.Amount,
+	response.Success(c, createUserResponse(user))
+}
+
+// getCurrentUserInfo lấy thông tin user hiện tại từ token
+func getCurrentUserInfo(c *gin.Context) (uint, int, error) {
+	userID := c.GetUint("userID")
+	userRole := c.GetInt("userRole")
+	if userID == 0 || userRole == 0 {
+		return 0, 0, errors.New("unauthorized")
+	}
+	return userID, userRole, nil
+}
+
+// validateUserAccess kiểm tra quyền truy cập của user
+func validateUserAccess(c *gin.Context, targetUserID uint, targetUserRole int) error {
+	userID, userRole, err := getCurrentUserInfo(c)
+	if err != nil {
+		return err
 	}
 
-	c.JSON(http.StatusOK, userResponse)
+	if userID != targetUserID && userRole != 1 {
+		return errors.New("forbidden")
+	}
+
+	return nil
 }
