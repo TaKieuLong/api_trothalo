@@ -4,6 +4,14 @@ import (
 	"time"
 )
 
+// Order status constants
+const (
+	OrderStatusPending   = 0
+	OrderStatusConfirmed = 1
+	OrderStatusCompleted = 2
+	OrderStatusCancelled = 3
+)
+
 type Order struct {
 	ID               uint          `json:"id" gorm:"primaryKey"`
 	UserID           *uint         `json:"userId"`
@@ -26,6 +34,8 @@ type Order struct {
 	SoldOutPrice     float64       `json:"soldOutPrice"`     // Giá sold out 5
 	DiscountPrice    float64       `json:"discountPrice"`    // Giá discount 20
 	TotalPrice       float64       `json:"totalPrice"`       // Tổng giá
+	CheckIn          string        `json:"checkIn"`
+	CheckOut         string        `json:"checkOut"`
 }
 
 type OrderRequest struct {
