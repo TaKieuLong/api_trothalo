@@ -36,7 +36,7 @@ type UserLoginResponse struct {
 type GoogleUser struct {
 	Name          string `json:"name"`
 	Email         string `json:"email"`
-	VerifiedEmail bool   `json:"verified_email"`
+	VerifiedEmail bool   `json:"verifiedEmail"`
 	Picture       string `json:"picture"`
 }
 
