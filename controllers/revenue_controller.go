@@ -44,7 +44,7 @@ func getRevenueData() (float64, float64, float64, []dto.MonthRevenue, error) {
 		Month   string
 		Revenue float64
 	}
-	if err := config.DB.Model(&models.Invoice{}).Where("status = ?", 1).Select("DATE_FORMAT(created_at, '%Y-%m') as month, SUM(total_amount) as revenue").Group("month").Order("month DESC").Limit(12).Scan(&results).Error; err != nil {
+	if err := config.DB.Model(&models.Invoice{}).Where("status = ?", 1).Select("TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM') as month, SUM(total_amount) as revenue").Group("month").Order("month DESC").Limit(12).Scan(&results).Error; err != nil {
 		return 0, 0, 0, nil, err
 	}
 
@@ -60,24 +60,6 @@ func getRevenueData() (float64, float64, float64, []dto.MonthRevenue, error) {
 
 // GetTotalRevenue lấy tổng doanh thu
 func GetTotalRevenue(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		response.Unauthorized(c)
-		return
-	}
-
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	_, currentUserRole, err := services.GetUserIDFromToken(tokenString)
-	if err != nil {
-		response.Unauthorized(c)
-		return
-	}
-
-	if currentUserRole != 2 && currentUserRole != 3 {
-		response.Forbidden(c)
-		return
-	}
-
 	totalRevenue, lastMonthRevenue, currentWeekRevenue, monthlyRevenue, err := getRevenueData()
 	if err != nil {
 		response.ServerError(c)
@@ -107,7 +89,7 @@ func GetTotal(c *gin.Context) {
 		return
 	}
 
-	if currentUserRole != 2 && currentUserRole != 3 {
+	if currentUserRole != 1 && currentUserRole != 2 && currentUserRole != 3 {
 		response.Forbidden(c)
 		return
 	}
@@ -131,7 +113,7 @@ func getTodayRevenue(adminID *uint) (float64, error) {
 	var todayRevenue float64
 	today := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), time.Now().UTC().Day(), 0, 0, 0, 0, time.UTC)
 
-	query := config.DB.Model(&models.Invoice{}).Where("status = ? AND created_at >= ?", 1, today)
+	query := config.DB.Model(&models.Invoice{}).Where("status = ? AND created_at AT TIME ZONE 'UTC' >= ?", 1, today)
 	if adminID != nil {
 		query = query.Where("admin_id = ?", *adminID)
 	}
@@ -158,7 +140,7 @@ func GetToday(c *gin.Context) {
 		return
 	}
 
-	if currentUserRole != 2 && currentUserRole != 3 {
+	if currentUserRole != 1 && currentUserRole != 2 && currentUserRole != 3 {
 		response.Forbidden(c)
 		return
 	}
@@ -189,7 +171,7 @@ func GetTodayUser(c *gin.Context) {
 		return
 	}
 
-	if currentUserRole != 2 && currentUserRole != 3 {
+	if currentUserRole != 1 && currentUserRole != 2 && currentUserRole != 3 {
 		response.Forbidden(c)
 		return
 	}
@@ -220,7 +202,7 @@ func GetUserRevene(c *gin.Context) {
 		return
 	}
 
-	if currentUserRole != 2 && currentUserRole != 3 {
+	if currentUserRole != 1 && currentUserRole != 2 && currentUserRole != 3 {
 		response.Forbidden(c)
 		return
 	}
@@ -236,7 +218,7 @@ func GetUserRevene(c *gin.Context) {
 		UserID     uint
 	}
 
-	if err := config.DB.Model(&models.UserRevenue{}).Where("date = ?", today).Find(&results).Error; err != nil {
+	if err := config.DB.Model(&models.UserRevenue{}).Where("date = ?", today.Format("2006-01-02")).Find(&results).Error; err != nil {
 		response.ServerError(c)
 		return
 	}

@@ -1,6 +1,9 @@
 package errors
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrorCode định nghĩa mã lỗi
 type ErrorCode string
@@ -79,3 +82,33 @@ func GetAppError(err error) *AppError {
 	}
 	return nil
 }
+
+var (
+	// User errors
+	ErrUserNotFound      = errors.New("user not found")
+	ErrUserAlreadyExists = errors.New("user already exists")
+	ErrInvalidPassword   = errors.New("invalid password")
+	ErrUnauthorized      = errors.New("unauthorized")
+
+	// Order errors
+	ErrOrderNotFound     = errors.New("order not found")
+	ErrOrderInvalid      = errors.New("invalid order")
+	ErrOrderCancelled    = errors.New("order already cancelled")
+	ErrOrderCompleted    = errors.New("order already completed")
+	ErrOrderNotConfirmed = errors.New("order not confirmed")
+
+	// Room errors
+	ErrRoomNotFound     = errors.New("room not found")
+	ErrRoomNotAvailable = errors.New("room not available")
+	ErrRoomOccupied     = errors.New("room is occupied")
+
+	// Payment errors
+	ErrPaymentFailed   = errors.New("payment failed")
+	ErrPaymentRefunded = errors.New("payment already refunded")
+	ErrInvalidAmount   = errors.New("invalid amount")
+
+	// Validation errors
+	ErrInvalidInput    = errors.New("invalid input")
+	ErrMissingRequired = errors.New("missing required field")
+	ErrInvalidFormat   = errors.New("invalid format")
+)

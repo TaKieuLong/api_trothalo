@@ -531,21 +531,32 @@ func (u UserController) GetBankSuperAdmin(c *gin.Context) {
 	})
 }
 
-// get Profile
+// GetProfile lấy thông tin profile của user
 func (u UserController) GetProfile(c *gin.Context) {
-	userID, _, err := getCurrentUserInfo(c)
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	userID, _, err := services.GetUserIDFromToken(tokenString)
 	if err != nil {
-		handleError(c, err)
+		response.Unauthorized(c)
 		return
 	}
 
 	var user models.User
-	if err := config.DB.Preload("Banks").First(&user, userID).Error; err != nil {
-		handleError(c, err)
+	if err := u.DB.Preload("Banks").Preload("Children").First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c)
+			return
+		}
+		response.ServerError(c)
 		return
 	}
 
-	response.Success(c, createUserResponse(user))
+	response.Success(c, convertToUserResponse(user))
 }
 
 // paginateUsers phân trang danh sách users

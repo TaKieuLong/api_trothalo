@@ -223,3 +223,41 @@ func ValidateInvoice(invoice *models.Invoice) error {
 
 	return nil
 }
+
+// ValidateEmail kiểm tra email hợp lệ
+func ValidateEmail(email string) error {
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	if !emailRegex.MatchString(email) {
+		return errors.NewAppError(errors.ErrCodeInvalidEmail, "Email không hợp lệ", nil)
+	}
+	return nil
+}
+
+// ValidatePhone kiểm tra số điện thoại hợp lệ
+func ValidatePhone(phone string) error {
+	phoneRegex := regexp.MustCompile(`^[0-9]{10}$`)
+	if !phoneRegex.MatchString(phone) {
+		return errors.NewAppError(errors.ErrCodeInvalidPhone, "Số điện thoại không hợp lệ", nil)
+	}
+	return nil
+}
+
+// ValidatePassword kiểm tra mật khẩu hợp lệ
+func ValidatePassword(password string) error {
+	if len(password) < 8 {
+		return errors.NewAppError(errors.ErrCodeInvalidPassword, "Mật khẩu phải có ít nhất 8 ký tự", nil)
+	}
+	return nil
+}
+
+// ValidateOrderInput kiểm tra dữ liệu đầu vào của order
+func ValidateOrderInput(order interface{}) error {
+	// TODO: Implement order validation
+	return nil
+}
+
+// ValidateRoomInput kiểm tra dữ liệu đầu vào của room
+func ValidateRoomInput(room interface{}) error {
+	// TODO: Implement room validation
+	return nil
+}
