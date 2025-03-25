@@ -58,6 +58,7 @@ func ConvertDateToComparableFormat(dateStr string) (string, error) {
 	}
 	return parsedDate.Format("20060102"), nil
 }
+
 func GetDiscounts(c *gin.Context) {
 
 	var discounts []models.Discount

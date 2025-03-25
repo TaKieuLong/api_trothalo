@@ -98,7 +98,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 	v1.GET("/holidays/:id", controllers.GetDetailHoliday)
 	v1.DELETE("/holidays", controllers.DeleteHoliday)
 
-	v1.GET("/discount", controllers.GetAllDiscounts)
+	v1.GET("/discount", controllers.GetDiscounts)
 	v1.GET("/discount/:id", controllers.GetDiscountDetail)
 	v1.POST("/discount", controllers.CreateDiscount)
 	v1.PUT("/discountUpdate", controllers.UpdateDiscount)

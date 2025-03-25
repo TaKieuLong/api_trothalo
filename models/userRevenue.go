@@ -2,7 +2,6 @@ package models
 
 import "time"
 
-// UserRevenue đại diện cho doanh thu của từng user theo ngày.
 type UserRevenue struct {
 	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID     uint      `gorm:"not null;uniqueIndex:idx_user_date" json:"user_id"`

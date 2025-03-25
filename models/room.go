@@ -18,7 +18,7 @@ type Room struct {
 	Description     string          `json:"description"`
 	CreatedAt       time.Time       `gorm:"autoCreateTime" json:"createdAt"`
 	UpdatedAt       time.Time       `gorm:"autoUpdateTime" json:"updatedAt"`
-	Status          int             `json:"status" gorm:"default:0"` //0: trống 1:đã dặt 2:checkin 3:checkout 4:Bảo trì
+	Status          int             `json:"status" gorm:"default:0"`
 	Avatar          string          `json:"avatar"`
 	Img             json.RawMessage `json:"img" gorm:"type:json"`
 	Num             int             `json:"num"`

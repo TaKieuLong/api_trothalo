@@ -1,22 +1,15 @@
 package models
 
-import (
-	"time"
-
-	"gorm.io/gorm"
-)
+import "time"
 
 type WithdrawalHistory struct {
-	ID              uint           `gorm:"primarykey" json:"id"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
-	UserID          uint           `json:"user_id"`
-	User            User           `gorm:"foreignKey:UserID" json:"-"`
-	Amount          int64          `json:"amount"`
-	Status          int            `json:"status"` // 0: Pending, 1: Rejected, 2: Completed
-	Note            string         `json:"note"`
-	TransactionCode string         `json:"transaction_code"`
-	BankID          uint           `json:"bank_id"`
-	Bank            Bank           `gorm:"foreignKey:BankID;references:BankId" json:"-"`
+	ID        uint      `gorm:"primaryKey"`
+	UserID    uint      `gorm:"not null"`
+	Amount    int64     `gorm:"not null"`
+	Status    string    `gorm:"type:varchar(20);not null;default:0"`
+	Reason    string    `gorm:"type:varchar(255)" json:"reason"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+
+	User User `gorm:"foreignKey:UserID" json:"user"`
 }
