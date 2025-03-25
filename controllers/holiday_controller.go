@@ -84,8 +84,8 @@ func GetHolidays(c *gin.Context) {
 				FromDate:  holiday.FromDate,
 				ToDate:    holiday.ToDate,
 				Price:     holiday.Price,
-				CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
-				UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+				CreatedAt: holiday.CreatedAt,
+				UpdatedAt: holiday.UpdatedAt,
 			})
 		}
 
@@ -106,12 +106,12 @@ func GetHolidays(c *gin.Context) {
 		allHolidays = allHolidays[start:end]
 	}
 
-	response.Success(c, gin.H{
-		"data": allHolidays,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
+	response.Success(c, dto.HolidayListResponse{
+		Holidays: allHolidays,
+		Pagination: response.Pagination{
+			Page:  page,
+			Limit: limit,
+			Total: total,
 		},
 	})
 }
@@ -161,8 +161,8 @@ func CreateHoliday(c *gin.Context) {
 
 	holiday := models.Holiday{
 		Name:     request.Name,
-		FromDate: fromDate.Format("2006-01-02 15:04:05"),
-		ToDate:   toDate.Format("2006-01-02 15:04:05"),
+		FromDate: request.FromDate,
+		ToDate:   request.ToDate,
 		Price:    request.Price,
 	}
 
@@ -186,8 +186,8 @@ func CreateHoliday(c *gin.Context) {
 		FromDate:  holiday.FromDate,
 		ToDate:    holiday.ToDate,
 		Price:     holiday.Price,
-		CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: holiday.CreatedAt,
+		UpdatedAt: holiday.UpdatedAt,
 	})
 }
 
@@ -204,8 +204,8 @@ func GetDetailHoliday(c *gin.Context) {
 		FromDate:  holiday.FromDate,
 		ToDate:    holiday.ToDate,
 		Price:     holiday.Price,
-		CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: holiday.CreatedAt,
+		UpdatedAt: holiday.UpdatedAt,
 	})
 }
 
@@ -259,10 +259,9 @@ func UpdateHoliday(c *gin.Context) {
 	}
 
 	holiday.Name = request.Name
-	holiday.FromDate = fromDate.Format("2006-01-02 15:04:05")
-	holiday.ToDate = toDate.Format("2006-01-02 15:04:05")
+	holiday.FromDate = request.FromDate
+	holiday.ToDate = request.ToDate
 	holiday.Price = request.Price
-	holiday.UpdatedAt = time.Now()
 
 	if err := config.DB.Save(&holiday).Error; err != nil {
 		response.ServerError(c)
@@ -284,8 +283,8 @@ func UpdateHoliday(c *gin.Context) {
 		FromDate:  holiday.FromDate,
 		ToDate:    holiday.ToDate,
 		Price:     holiday.Price,
-		CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: holiday.CreatedAt,
+		UpdatedAt: holiday.UpdatedAt,
 	})
 }
 
@@ -332,8 +331,8 @@ func DeleteHoliday(c *gin.Context) {
 }
 
 func GetHolidaysByDateRange(c *gin.Context) {
-	startDate := c.Query("start_date")
-	endDate := c.Query("end_date")
+	startDate := c.Query("startDate")
+	endDate := c.Query("endDate")
 
 	start, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
@@ -366,8 +365,8 @@ func GetHolidaysByDateRange(c *gin.Context) {
 			FromDate:  holiday.FromDate,
 			ToDate:    holiday.ToDate,
 			Price:     holiday.Price,
-			CreatedAt: holiday.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt: holiday.UpdatedAt.Format("2006-01-02 15:04:05"),
+			CreatedAt: holiday.CreatedAt,
+			UpdatedAt: holiday.UpdatedAt,
 		})
 	}
 

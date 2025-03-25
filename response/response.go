@@ -8,9 +8,17 @@ import (
 
 // Response định nghĩa cấu trúc response
 type Response struct {
-	Code int         `json:"code"`
-	Mess string      `json:"mess"`
-	Data interface{} `json:"data,omitempty"`
+	Code       int         `json:"code"`
+	Mess       string      `json:"mess"`
+	Data       interface{} `json:"data,omitempty"`
+	Pagination *Pagination `json:"pagination,omitempty"`
+}
+
+// Pagination định nghĩa cấu trúc phân trang
+type Pagination struct {
+	Page  int `json:"page"`
+	Limit int `json:"limit"`
+	Total int `json:"total"`
 }
 
 // Success trả về response thành công
@@ -19,6 +27,20 @@ func Success(c *gin.Context, data interface{}) {
 		Code: 1,
 		Mess: "Thành công",
 		Data: data,
+	})
+}
+
+// SuccessWithPagination trả về response thành công có phân trang
+func SuccessWithPagination(c *gin.Context, data interface{}, page, limit, total int) {
+	c.JSON(http.StatusOK, Response{
+		Code: 1,
+		Mess: "Thành công",
+		Data: data,
+		Pagination: &Pagination{
+			Page:  page,
+			Limit: limit,
+			Total: total,
+		},
 	})
 }
 
@@ -70,9 +92,10 @@ func ValidationError(c *gin.Context, message string) {
 	})
 }
 
+// BadRequest trả về response lỗi bad request
 func BadRequest(c *gin.Context, message string) {
-	c.JSON(400, gin.H{
-		"code": 0,
-		"mess": message,
+	c.JSON(http.StatusBadRequest, Response{
+		Code: 0,
+		Mess: message,
 	})
 }

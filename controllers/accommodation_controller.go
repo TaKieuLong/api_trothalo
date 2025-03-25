@@ -161,9 +161,7 @@ func GetAccBookingDates(c *gin.Context) {
 		roomResponses = append(roomResponses, roomResponse)
 	}
 
-	response.Success(c, gin.H{
-		"data": roomResponses,
-	})
+	response.Success(c, roomResponses)
 }
 
 // getGuestBookings lấy thông tin khách đặt phòng theo accommodation_id cho API GetAccBookingDates
@@ -476,16 +474,7 @@ func GetAllAccommodations(c *gin.Context) {
 		})
 	}
 
-	response.Success(c, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách chỗ ở thành công",
-		"data": accommodationsResponse,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	response.SuccessWithPagination(c, accommodationsResponse, page, limit, total)
 }
 
 // Hàm chuẩn hóa chuỗi
@@ -1040,16 +1029,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		})
 	}
 
-	response.Success(c, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách chỗ ở thành công",
-		"data": accommodationsResponse,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	response.SuccessWithPagination(c, accommodationsResponse, page, limit, total)
 }
 
 // Hàm kiểm tra benefit
@@ -1275,11 +1255,7 @@ func GetAccommodationDetail(c *gin.Context) {
 					},
 					Rates: convertRatesToResponse(acc.Rates),
 				}
-				response.Success(c, gin.H{
-					"code": 1,
-					"mess": "Lấy thông tin chỗ ở thành công (từ cache)",
-					"data": accommodationResponse,
-				})
+				response.Success(c, accommodationResponse)
 				return
 			}
 		}
@@ -1342,11 +1318,7 @@ func GetAccommodationDetail(c *gin.Context) {
 		Rates: convertRatesToResponse(accommodation.Rates),
 	}
 
-	response.Success(c, gin.H{
-		"code": 1,
-		"mess": "Lấy thông tin chỗ ở thành công",
-		"data": accommodationResponse,
-	})
+	response.Success(c, accommodationResponse)
 }
 
 func convertRatesToResponse(rates []models.Rate) []dto.RateResponse {
@@ -1573,7 +1545,7 @@ func UpdateAccommodation(c *gin.Context) {
 		},
 	}
 
-	response.Success(c, gin.H{"code": 1, "mess": "Cập nhật chỗ ở thành công", "data": accommodationResponse})
+	response.Success(c, accommodationResponse)
 }
 
 func ChangeAccommodationStatus(c *gin.Context) {

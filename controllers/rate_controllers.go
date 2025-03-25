@@ -54,7 +54,7 @@ func GetAllRates(c *gin.Context) {
 			}
 			rateResponses = append(rateResponses, rateResponse)
 		}
-		c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy danh sách đánh giá thành công từ cache", "data": rateResponses})
+		response.Success(c, rateResponses)
 		return
 	}
 
@@ -99,7 +99,7 @@ func GetAllRates(c *gin.Context) {
 		log.Printf("Lỗi khi lưu danh sách đánh giá vào Redis: %v", err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy danh sách đánh giá thành công", "data": rateResponses})
+	response.Success(c, rateResponses)
 }
 
 func CreateRate(c *gin.Context) {
