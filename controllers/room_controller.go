@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"strconv"
 	"strings"
@@ -18,71 +20,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-type Request struct {
-	RoomId       uint            `json:"id"`
-	RoomName     string          `json:"roomName"`
-	Type         uint            `json:"type"`
-	NumBed       int             `json:"numBed"`
-	NumTolet     int             `json:"numTolet"`
-	Acreage      int             `json:"acreage"`
-	Price        int             `json:"price"`
-	DaysPrice    json.RawMessage `json:"daysPrice"`
-	HolidayPrice json.RawMessage `json:"holidayPrice"`
-	Description  string          `json:"description"`
-	Status       int             `json:"status"`
-	Avatar       string          `json:"avatar"`
-	Img          json.RawMessage `json:"img"`
-	Num          int             `json:"num"`
-	Furniture    json.RawMessage `json:"furniture" gorm:"type:json"`
-	People       int             `json:"people"`
-}
-
-type DayPrice struct {
-	Day   string `json:"day"`
-	Price int    `json:"price"`
-}
-
-type RoomResponse struct {
-	RoomId    uint      `json:"id"`
-	RoomName  string    `json:"roomName"`
-	Type      uint      `json:"type"`
-	NumBed    int       `json:"numBed"`
-	NumTolet  int       `json:"numTolet"`
-	Acreage   int       `json:"acreage"`
-	Price     int       `json:"price"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	Status    int       `json:"status"`
-	Avatar    string    `json:"avatar"`
-	People    int       `json:"people"`
-	Parents   Parents   `json:"parents"`
-}
-
-type Parents struct {
-	Id   uint   `json:"id"`
-	Name string `json:"name"`
-}
-
-type RoomDetail struct {
-	RoomId      uint            `json:"id" gorm:"primaryKey"`
-	RoomName    string          `json:"roomName"`
-	Type        uint            `json:"type"`
-	NumBed      int             `json:"numBed"`
-	NumTolet    int             `json:"numTolet"`
-	Acreage     int             `json:"acreage"`
-	Price       int             `json:"price"`
-	Description string          `json:"description"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
-	Status      int             `json:"status"`
-	Avatar      string          `json:"avatar"`
-	Img         json.RawMessage `json:"img" gorm:"type:json"`
-	Num         int             `json:"num"`
-	Furniture   json.RawMessage `json:"furniture" gorm:"type:json"`
-	People      int             `json:"people"`
-	Parent      Parents         `json:"parent"`
-}
 
 var CacheKey2 = "accommodations:all"
 
@@ -133,7 +70,7 @@ func filterRoomStatusesByDate(statuses []models.RoomStatus, fromDate, toDate tim
 		if !(status.ToDate.Before(fromDate) || status.FromDate.After(toDate)) {
 			filteredStatuses = append(filteredStatuses, status)
 		}
-		
+
 	}
 	return filteredStatuses
 }
@@ -143,14 +80,14 @@ func GetRoomBookingDates(c *gin.Context) {
 	date := c.DefaultQuery("date", "")
 
 	if roomID == "" || date == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id và date là bắt buộc"})
+		response.BadRequest(c, "id và date là bắt buộc")
 		return
 	}
 
 	layout := "01/2006"
 	parsedDate, err := time.Parse(layout, date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy"})
+		response.BadRequest(c, "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy")
 		return
 	}
 
@@ -171,7 +108,7 @@ func GetRoomBookingDates(c *gin.Context) {
 	err = db.Where("room_id = ?", roomID).Find(&statuses).Error
 	if err != nil {
 		log.Printf("Error retrieving room statuses: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy thông tin trạng thái phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -179,7 +116,7 @@ func GetRoomBookingDates(c *gin.Context) {
 	orderMap, err := getGuestBookingsForRoom(roomID)
 	if err != nil {
 		log.Printf("Error retrieving guest bookings: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy danh sách đặt phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -218,10 +155,7 @@ func GetRoomBookingDates(c *gin.Context) {
 		roomResponses = append(roomResponses, roomResponse)
 	}
 
-	// Trả về kết quả
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách phòng thành công",
+	response.Success(c, gin.H{
 		"data": roomResponses,
 	})
 }
@@ -301,14 +235,14 @@ func GetAllRooms(c *gin.Context) {
 	// Xác thực token
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -375,9 +309,9 @@ func GetAllRooms(c *gin.Context) {
 			return
 		}
 
-		var roomDetails []RoomDetail
+		var roomDetails []dto.RoomDetail
 		for _, room := range allRooms {
-			roomDetails = append(roomDetails, RoomDetail{
+			roomDetails = append(roomDetails, dto.RoomDetail{
 				RoomId:      room.RoomId,
 				RoomName:    room.RoomName,
 				Type:        room.Type,
@@ -395,7 +329,7 @@ func GetAllRooms(c *gin.Context) {
 				Num:       room.Num,
 				Furniture: room.Furniture,
 				People:    room.People,
-				Parent: Parents{
+				Parent: dto.Parents{
 					Id:   room.Parent.ID,
 					Name: room.Parent.Name,
 				},
@@ -471,9 +405,9 @@ func GetAllRooms(c *gin.Context) {
 	}
 
 	// Chuẩn bị response
-	roomResponses := make([]RoomResponse, 0)
+	roomResponses := make([]dto.RoomResponse, 0)
 	for _, room := range filteredRooms {
-		roomResponses = append(roomResponses, RoomResponse{
+		roomResponses = append(roomResponses, dto.RoomResponse{
 			RoomId:    room.RoomId,
 			RoomName:  room.RoomName,
 			Type:      room.Type,
@@ -486,7 +420,7 @@ func GetAllRooms(c *gin.Context) {
 			Status:    room.Status,
 			Avatar:    room.Avatar,
 			People:    room.People,
-			Parents: Parents{
+			Parents: dto.Parents{
 				Id:   room.Parent.ID,
 				Name: room.Parent.Name,
 			},
@@ -662,9 +596,9 @@ func GetAllRoomsUser(c *gin.Context) {
 			return
 		}
 
-		var allRoomsDetails []RoomDetail
+		var allRoomsDetails []dto.RoomDetail
 		for _, room := range allRooms {
-			roomDetail := RoomDetail{
+			roomDetail := dto.RoomDetail{
 				RoomId:   room.RoomId,
 				RoomName: room.RoomName,
 				Type:     room.Type,
@@ -678,7 +612,7 @@ func GetAllRoomsUser(c *gin.Context) {
 				Status:    room.Status,
 				Avatar:    room.Avatar,
 				People:    room.People,
-				Parent: Parents{
+				Parent: dto.Parents{
 					Id:   room.Parent.ID,
 					Name: room.Parent.Name,
 				},
@@ -717,9 +651,9 @@ func GetAllRoomsUser(c *gin.Context) {
 	}
 	paginatedRooms := filteredRooms[startIndex:endIndex]
 
-	roomResponses := make([]RoomResponse, 0)
+	roomResponses := make([]dto.RoomResponse, 0)
 	for _, room := range paginatedRooms {
-		roomResponses = append(roomResponses, RoomResponse{
+		roomResponses = append(roomResponses, dto.RoomResponse{
 			RoomId:    room.RoomId,
 			RoomName:  room.RoomName,
 			Type:      room.Type,
@@ -732,7 +666,7 @@ func GetAllRoomsUser(c *gin.Context) {
 			Status:    room.Status,
 			Avatar:    room.Avatar,
 			People:    room.People,
-			Parents: Parents{
+			Parents: dto.Parents{
 				Id:   room.Parent.ID,
 				Name: room.Parent.Name,
 			},
@@ -776,7 +710,7 @@ func UpdateLowestPriceForAccommodation(accommodationID uint) {
 }
 
 func CreateRoom(c *gin.Context) {
-	var newRoom models.Room
+	var request dto.RoomRequest
 	// Xác thực token
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -790,9 +724,26 @@ func CreateRoom(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
 		return
 	}
-	if err := c.ShouldBindJSON(&newRoom); err != nil {
+	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ", "details": err.Error()})
 		return
+	}
+
+	// Tạo model Room từ request
+	newRoom := models.Room{
+		RoomName:    request.RoomName,
+		Type:        request.Type,
+		NumBed:      request.NumBed,
+		NumTolet:    request.NumTolet,
+		Acreage:     request.Acreage,
+		Price:       request.Price,
+		Description: request.Description,
+		Status:      request.Status,
+		Avatar:      request.Avatar,
+		Img:         request.Img,
+		Num:         request.Num,
+		Furniture:   request.Furniture,
+		People:      request.People,
 	}
 
 	if err := newRoom.ValidateStatus(); err != nil {
@@ -800,19 +751,20 @@ func CreateRoom(c *gin.Context) {
 		return
 	}
 
-	furnitureJSON, err := json.Marshal(newRoom.Furniture)
+	furnitureJSON, err := json.Marshal(request.Furniture)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa holidayPrice", "details": err.Error()})
 		return
 	}
 
-	imgJSON, err := json.Marshal(newRoom.Img)
+	imgJSON, err := json.Marshal(request.Img)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa img", "details": err.Error()})
 		return
 	}
+
 	var accommodation models.Accommodation
-	if err := config.DB.First(&accommodation, newRoom.AccommodationID).Error; err != nil {
+	if err := config.DB.First(&accommodation, request.RoomId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "message": "Không tìm thấy cơ sở lưu trú!"})
 			return
@@ -823,6 +775,7 @@ func CreateRoom(c *gin.Context) {
 	newRoom.Parent = accommodation
 	newRoom.Img = imgJSON
 	newRoom.Furniture = furnitureJSON
+	newRoom.AccommodationID = request.RoomId
 
 	if err := config.DB.Create(&newRoom).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo phòng", "details": err.Error()})
@@ -926,7 +879,7 @@ func UpdateRoom(c *gin.Context) {
 		return
 	}
 
-	var request Request
+	var request dto.RoomRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ", "details": err.Error()})
@@ -1118,8 +1071,8 @@ func ChangeRoomStatus(c *gin.Context) {
 }
 
 // Hàm set response cho details
-func buildRoomDetailResponse(room models.Room) RoomDetail {
-	return RoomDetail{
+func buildRoomDetailResponse(room models.Room) dto.RoomDetail {
+	return dto.RoomDetail{
 		RoomId:      room.RoomId,
 		RoomName:    room.RoomName,
 		Type:        room.Type,
@@ -1136,7 +1089,7 @@ func buildRoomDetailResponse(room models.Room) RoomDetail {
 		Num:         room.Num,
 		Furniture:   room.Furniture,
 		People:      room.People,
-		Parent: Parents{
+		Parent: dto.Parents{
 			Id:   room.Parent.ID,
 			Name: room.Parent.Name,
 		},

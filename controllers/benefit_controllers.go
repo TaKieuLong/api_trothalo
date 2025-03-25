@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
 	"new/services"
 	"strconv"
@@ -14,31 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UpdateBenefitRequest struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
-}
-
-type CreateBenefitRequest struct {
-	Name string `json:"name" binding:"required"`
-}
-
-type ChangeBenefitStatusRequest struct {
-	ID     uint `json:"id"`
-	Status int  `json:"status"`
-}
-
-type BenefitResponse struct {
-	Id   int    `json:"id"`
-	Name string `json:"name"`
-}
-
 // Lọc benefit theo status
-func filterBenefitsByStatus(benefits []models.Benefit, status int) []BenefitResponse {
-	var filtered []BenefitResponse
+func filterBenefitsByStatus(benefits []models.Benefit, status int) []dto.BenefitResponse {
+	var filtered []dto.BenefitResponse
 	for _, b := range benefits {
 		if b.Status == status {
-			filtered = append(filtered, BenefitResponse{
+			filtered = append(filtered, dto.BenefitResponse{
 				Id:   b.Id,
 				Name: b.Name,
 			})
@@ -48,8 +30,8 @@ func filterBenefitsByStatus(benefits []models.Benefit, status int) []BenefitResp
 }
 
 // Lọc Benefit cho cms
-func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) []BenefitResponse {
-	var filtered []BenefitResponse
+func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) []dto.BenefitResponse {
+	var filtered []dto.BenefitResponse
 	for _, b := range benefits {
 		// Filter theo status
 		if statusFilter != "" {
@@ -67,7 +49,7 @@ func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) 
 			}
 		}
 
-		filtered = append(filtered, BenefitResponse{
+		filtered = append(filtered, dto.BenefitResponse{
 			Id:   b.Id,
 			Name: b.Name,
 		})
@@ -131,7 +113,7 @@ func GetAllBenefit(c *gin.Context) {
 		}
 	}
 
-	var filteredBenefits []BenefitResponse
+	var filteredBenefits []dto.BenefitResponse
 
 	//filter role = 1,2,3 cho sidebar cms, còn lại filter cho web user
 	if currentUserRole != 0 {
@@ -158,7 +140,7 @@ func GetAllBenefit(c *gin.Context) {
 	end := start + limit
 
 	if start >= total {
-		filteredBenefits = []BenefitResponse{}
+		filteredBenefits = []dto.BenefitResponse{}
 	} else if end > total {
 		filteredBenefits = filteredBenefits[start:]
 	} else {
@@ -179,7 +161,7 @@ func GetAllBenefit(c *gin.Context) {
 }
 
 func CreateBenefit(c *gin.Context) {
-	var benefitRequests []CreateBenefitRequest
+	var benefitRequests []dto.CreateBenefitRequest
 
 	if err := c.ShouldBindJSON(&benefitRequests); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
@@ -226,7 +208,7 @@ func GetBenefitDetail(c *gin.Context) {
 }
 
 func UpdateBenefit(c *gin.Context) {
-	var request UpdateBenefitRequest
+	var request dto.UpdateBenefitRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
@@ -257,7 +239,7 @@ func UpdateBenefit(c *gin.Context) {
 }
 
 func ChangeBenefitStatus(c *gin.Context) {
-	var request ChangeBenefitStatusRequest
+	var request dto.ChangeBenefitStatusRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})

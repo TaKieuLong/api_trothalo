@@ -1,15 +1,16 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
-	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
-	"sort"
+	"new/types"
 	"strconv"
 	"strings"
 	"time"
@@ -18,57 +19,8 @@ import (
 	"gorm.io/gorm"
 )
 
-type OrderUserResponse struct {
-	ID               uint                       `json:"id"`
-	User             Actor                      `json:"user"`
-	Accommodation    OrderAccommodationResponse `json:"accommodation"`
-	Room             []OrderRoomResponse        `json:"room"`
-	CheckInDate      string                     `json:"checkInDate"`
-	CheckOutDate     string                     `json:"checkOutDate"`
-	Status           int                        `json:"status"`
-	CreatedAt        time.Time                  `json:"createdAt"`
-	UpdatedAt        time.Time                  `json:"updatedAt"`
-	Price            int                        `json:"price"`            // Giá cơ bản cho mỗi phòng
-	HolidayPrice     float64                    `json:"holidayPrice"`     // Giá lễ
-	CheckInRushPrice float64                    `json:"checkInRushPrice"` // Giá check-in gấp
-	SoldOutPrice     float64                    `json:"soldOutPrice"`     // Giá sold out
-	DiscountPrice    float64                    `json:"discountPrice"`    // Giá discount
-	TotalPrice       float64                    `json:"totalPrice"`
-	InvoiceCode      string                     `json:"invoiceCode"`
-}
-
-type OrderAccommodationResponse struct {
-	ID       uint   `json:"id"`
-	Type     int    `json:"type"`
-	Name     string `json:"name"`
-	Address  string `json:"address"`
-	Ward     string `json:"ward"`
-	District string `json:"district"`
-	Province string `json:"province"`
-	Price    int    `json:"price"`
-	Avatar   string `json:"avatar"`
-}
-
-type OrderRoomResponse struct {
-	ID              uint   `json:"id"`
-	AccommodationID uint   `json:"accommodationId"`
-	RoomName        string `json:"roomName"`
-	Price           int    `json:"price"`
-}
-
-type CreateOrderRequest struct {
-	UserID          uint   `json:"userId"`
-	AccommodationID uint   `json:"accommodationId"`
-	RoomID          []uint `json:"roomId"`
-	CheckInDate     string `json:"checkInDate"`
-	CheckOutDate    string `json:"checkOutDate"`
-	GuestName       string `json:"guestName,omitempty"`
-	GuestEmail      string `json:"guestEmail,omitempty"`
-	GuestPhone      string `json:"guestPhone,omitempty"`
-}
-
-func convertToOrderAccommodationResponse(accommodation models.Accommodation) OrderAccommodationResponse {
-	return OrderAccommodationResponse{
+func convertToOrderAccommodationResponse(accommodation models.Accommodation) dto.OrderAccommodationResponse {
+	return dto.OrderAccommodationResponse{
 		ID:       accommodation.ID,
 		Type:     accommodation.Type,
 		Name:     accommodation.Name,
@@ -81,8 +33,8 @@ func convertToOrderAccommodationResponse(accommodation models.Accommodation) Ord
 	}
 }
 
-func convertToOrderRoomResponse(room models.Room) OrderRoomResponse {
-	return OrderRoomResponse{
+func convertToOrderRoomResponse(room models.Room) dto.OrderRoomResponse {
+	return dto.OrderRoomResponse{
 		ID:              room.RoomId,
 		AccommodationID: room.AccommodationID,
 		RoomName:        room.RoomName,
@@ -100,500 +52,177 @@ func ConvertDateToISOFormat(dateStr string) (time.Time, error) {
 }
 
 func GetOrders(c *gin.Context) {
-	// Lấy Authorization Header
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
-	// Xử lý token
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	currentUserID, currentUserRole, err := services.GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
-	// Kết nối Redis
-	cacheKey := fmt.Sprintf("orders:all:user:%d", currentUserID)
-	rdb, err := config.ConnectRedis()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+	var orders []models.Order
+	query := config.DB.Preload("User").Preload("Accommodation")
+
+	if currentUserRole == 1 {
+		query = query.Where("user_id = ?", currentUserID)
+	}
+
+	if err := query.Find(&orders).Error; err != nil {
+		response.ServerError(c)
 		return
 	}
 
-	var allOrders []models.Order
-
-	// Lấy dữ liệu từ Redis Cache
-	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allOrders); err != nil || len(allOrders) == 0 {
-		// Nếu không có cache hoặc Redis gặp lỗi, thực hiện truy vấn từ DB
-		baseTx := config.DB.Model(&models.Order{}).
-			Preload("Accommodation").
-			Preload("Room").
-			Preload("User")
-
-		// Áp dụng quyền truy cập
-		if currentUserRole == 2 {
-			// Admin: Lọc theo các chỗ ở thuộc về Admin
-			baseTx = baseTx.Where("orders.accommodation_id IN (?)",
-				config.DB.Model(&models.Accommodation{}).Select("id").Where("user_id = ?", currentUserID))
-		} else if currentUserRole == 3 {
-			// Receptionist: Lọc theo các chỗ ở thuộc về Admin của Receptionist
-			var adminID int
-			if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil || adminID == 0 {
-				c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
-				return
-			}
-			baseTx = baseTx.Where("orders.accommodation_id IN (?)",
-				config.DB.Model(&models.Accommodation{}).Select("id").Where("user_id = ?", adminID))
-		}
-
-		// Truy vấn tất cả đơn hàng từ DB
-		if err := baseTx.Find(&allOrders).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách đơn hàng"})
-			return
-		}
-
-		// Lưu vào Redis Cache
-		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allOrders, 10*time.Minute); err != nil {
-			log.Printf("Lỗi khi lưu danh sách đơn hàng vào Redis: %v", err)
-		}
+	var orderResponses []dto.OrderResponse
+	for _, order := range orders {
+		orderResponses = append(orderResponses, dto.OrderResponse{
+			ID:              order.ID,
+			UserID:          *order.UserID,
+			AccommodationID: order.AccommodationID,
+			TotalPrice:      order.TotalPrice,
+			Status:          order.Status,
+			CreatedAt:       order.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:       order.UpdatedAt.Format(time.RFC3339),
+			User: types.InvoiceUserResponse{
+				ID:          order.User.ID,
+				Name:        order.User.Name,
+				Email:       order.User.Email,
+				PhoneNumber: order.User.PhoneNumber,
+			},
+			Accommodation: dto.AccommodationResponse{
+				ID:      order.Accommodation.ID,
+				Name:    order.Accommodation.Name,
+				Address: order.Accommodation.Address,
+				Price:   order.Accommodation.Price,
+			},
+		})
 	}
 
-	// Lấy các tham số filter từ query
-	pageStr := c.Query("page")
-	limitStr := c.Query("limit")
-	nameFilter := c.Query("name")
-	phoneStr := c.Query("phoneNumber")
-	priceStr := c.Query("price")
-	fromDateStr := c.Query("fromDate")
-	toDateStr := c.Query("toDate")
-	statusFilter := c.Query("status")
-
-	// Xử lý phân trang
-	page := 0
-	limit := 10
-	if pageStr != "" {
-		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
-			page = parsedPage
-		}
-	}
-	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
-		}
-	}
-
-	// Áp dụng bộ lọc
-	filteredOrders := make([]models.Order, 0)
-	for _, order := range allOrders {
-		if nameFilter != "" {
-			decodedName, _ := url.QueryUnescape(nameFilter)
-			if !strings.Contains(strings.ToLower(order.Accommodation.Name), strings.ToLower(decodedName)) {
-				continue
-			}
-		}
-		if phoneStr != "" {
-			if order.User != nil && !strings.Contains(strings.ToLower(order.User.PhoneNumber), strings.ToLower(phoneStr)) {
-				continue
-			}
-			if order.User == nil && !strings.Contains(strings.ToLower(order.GuestPhone), strings.ToLower(phoneStr)) {
-				continue
-			}
-		}
-		if priceStr != "" {
-			price, err := strconv.ParseFloat(priceStr, 64)
-			if err == nil && order.TotalPrice < price {
-				continue
-			}
-		}
-		if fromDateStr != "" {
-			fromDateISO, err := ConvertDateToISOFormat(fromDateStr)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng fromDate"})
-				return
-			}
-			if order.CreatedAt.Before(fromDateISO) {
-				continue
-			}
-		}
-		if toDateStr != "" {
-			toDateISO, err := ConvertDateToISOFormat(toDateStr)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng toDate"})
-				return
-			}
-			if order.UpdatedAt.After(toDateISO) {
-				continue
-			}
-		}
-		if statusFilter != "" {
-			parsedStatusFilter, err := strconv.Atoi(statusFilter)
-			if err == nil && order.Status != parsedStatusFilter {
-				continue
-			}
-		}
-		filteredOrders = append(filteredOrders, order)
-	}
-
-	// Tính toán lại tổng số đơn hàng sau khi lọc
-	totalFiltered := len(filteredOrders)
-
-	//Xếp theo update mới nhất
-	sort.Slice(filteredOrders, func(i, j int) bool {
-		return filteredOrders[i].UpdatedAt.After(filteredOrders[j].UpdatedAt)
-	})
-	// Áp dụng phân trang
-	start := page * limit
-	end := start + limit
-	if start >= totalFiltered {
-		filteredOrders = []models.Order{}
-	} else if end > totalFiltered {
-		filteredOrders = filteredOrders[start:]
-	} else {
-		filteredOrders = filteredOrders[start:end]
-	}
-
-	// Chuẩn bị phản hồi
-	var orderResponses []OrderUserResponse
-	for _, order := range filteredOrders {
-		var user Actor
-		if order.UserID != nil {
-			user = Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
-		} else {
-			user = Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
-		}
-
-		accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
-		var roomResponses []OrderRoomResponse
-		for _, room := range order.Room {
-			roomResponse := convertToOrderRoomResponse(room)
-			roomResponses = append(roomResponses, roomResponse)
-		}
-
-		orderResponse := OrderUserResponse{
-			ID:               order.ID,
-			User:             user,
-			Accommodation:    accommodationResponse,
-			Room:             roomResponses,
-			CheckInDate:      order.CheckInDate,
-			CheckOutDate:     order.CheckOutDate,
-			Status:           order.Status,
-			CreatedAt:        order.CreatedAt,
-			UpdatedAt:        order.UpdatedAt,
-			Price:            order.Price,
-			HolidayPrice:     order.HolidayPrice,
-			CheckInRushPrice: order.CheckInRushPrice,
-			SoldOutPrice:     order.SoldOutPrice,
-			DiscountPrice:    order.DiscountPrice,
-			TotalPrice:       order.TotalPrice,
-		}
-		orderResponses = append(orderResponses, orderResponse)
-	}
-
-	// Phản hồi kết quả
-	c.JSON(http.StatusOK, gin.H{
-		"code":       1,
-		"mess":       "Lấy danh sách đơn hàng thành công",
-		"data":       orderResponses,
-		"pagination": gin.H{"page": page, "limit": limit, "total": totalFiltered},
-	})
+	response.Success(c, orderResponses)
 }
 
 func CreateOrder(c *gin.Context) {
+	var request dto.CreateOrderRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, err.Error())
+		return
+	}
 
 	authHeader := c.GetHeader("Authorization")
-
-	var request CreateOrderRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+	if authHeader == "" {
+		response.Unauthorized(c)
 		return
 	}
 
-	var currentUserID uint
-	var userId *uint
-	var actor Actor
-
-	if authHeader != "" {
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		userID, _, err := GetUserIDFromToken(tokenString)
-
-		if err == nil {
-			currentUserID = userID
-		} else {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
-			return
-		}
-	} else {
-		if request.UserID != 0 {
-			currentUserID = request.UserID
-			var userInfo models.User
-			if err := config.DB.Where("id = ?", request.UserID).First(&userInfo).Error; err == nil {
-				userId = new(uint)
-				*userId = userInfo.ID
-
-				actor = Actor{
-					Name:        userInfo.Name,
-					Email:       userInfo.Email,
-					PhoneNumber: userInfo.PhoneNumber,
-				}
-			} else {
-				c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy người dùng"})
-				return
-			}
-		} else {
-			var userInfo models.User
-			if err := config.DB.Where("phone_number = ?", request.GuestPhone).First(&userInfo).Error; err == nil {
-
-				userId = new(uint)
-				*userId = userInfo.ID
-
-				actor = Actor{
-					Name:        userInfo.Name,
-					Email:       userInfo.Email,
-					PhoneNumber: userInfo.PhoneNumber,
-				}
-			} else {
-				userId = nil
-				actor = Actor{
-					Name:        request.GuestName,
-					Email:       request.GuestEmail,
-					PhoneNumber: request.GuestPhone,
-				}
-			}
-		}
-	}
-
-	checkInDate, err := time.Parse("02/01/2006", request.CheckInDate)
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := services.GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày nhận phòng không hợp lệ"})
+		response.Unauthorized(c)
 		return
 	}
 
-	if checkInDate.Before(time.Now()) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày nhận phòng không được nhỏ hơn ngày hiện tại"})
+	if currentUserRole != 1 {
+		response.Forbidden(c)
 		return
 	}
 
-	checkOutDate, err := time.Parse("02/01/2006", request.CheckOutDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng không hợp lệ"})
+	var accommodation models.Accommodation
+	if err := config.DB.First(&accommodation, request.AccommodationID).Error; err != nil {
+		response.NotFound(c)
 		return
 	}
 
 	order := models.Order{
-		UserID:          userId,
+		UserID:          &currentUserID,
 		AccommodationID: request.AccommodationID,
-		RoomID:          request.RoomID,
-		CheckInDate:     request.CheckInDate,
-		CheckOutDate:    request.CheckOutDate,
-		GuestName:       request.GuestName,
-		GuestEmail:      request.GuestEmail,
-		GuestPhone:      request.GuestPhone,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
-	}
-	numDays := int(checkOutDate.Sub(checkInDate).Hours() / 24)
-	if numDays <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng phải sau ngày nhận phòng"})
-		return
-	}
-
-	price := 0
-	soldOutPrice := 0.0
-
-	var accommodation models.Accommodation
-	if err := config.DB.First(&accommodation, request.AccommodationID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tìm thấy thông tin chỗ ở"})
-		return
-	}
-
-	if accommodation.Type == 0 && len(order.RoomID) > 0 {
-		var rooms []models.Room
-		if err := config.DB.Where("room_id IN ?", order.RoomID).Find(&rooms).Error; err != nil || len(rooms) != len(order.RoomID) {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tìm thấy phòng"})
-			return
-		}
-
-		for _, room := range rooms {
-			if room.AccommodationID != request.AccommodationID {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "AccommodationID không hợp lệ"})
-				return
-			}
-
-			var roomStatus []models.RoomStatus
-			err := config.DB.Where("room_id = ? AND status = 1 AND ((from_date < ? AND to_date > ?) OR (from_date < ? AND to_date > ?))",
-				room.RoomId, checkOutDate, checkInDate, checkOutDate, checkInDate).Find(&roomStatus).Error
-
-			if err != nil {
-				c.JSON(http.StatusCreated, gin.H{"code": 0, "mess": "Lỗi kiểm tra trạng thái phòng"})
-				return
-			}
-
-			if len(roomStatus) > 0 {
-				c.JSON(http.StatusCreated, gin.H{"code": 0, "mess": "Phòng đã được đặt hoặc không khả dụng trong khoảng thời gian này"})
-				return
-			}
-			price += room.Price * numDays
-
-		}
-	} else {
-
-		var accommodationStatus []models.AccommodationStatus
-		if err := config.DB.Where("accommodation_id = ? AND status = 1 AND ((from_date < ? AND to_date > ?) OR (from_date < ? AND to_date > ?))",
-			request.AccommodationID, checkOutDate, checkInDate, checkOutDate, checkInDate).Find(&accommodationStatus).Error; err != nil {
-			c.JSON(http.StatusCreated, gin.H{"code": 0, "mess": "Lỗi kiểm tra trạng thái chỗ ở"})
-			return
-		}
-
-		if len(accommodationStatus) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Chỗ ở đã được đặt hoặc không khả dụng trong khoảng thời gian này"})
-			return
-		}
-
-		price = accommodation.Price * numDays
-	}
-
-	order.Price = price
-	order.SoldOutPrice = soldOutPrice
-
-	if request.UserID != 0 {
-		order.UserID = &request.UserID
-		isEligibleForDiscount := services.CheckUserEligibilityForDiscount(request.UserID)
-		if isEligibleForDiscount {
-			var user models.User
-			if err := config.DB.First(&user, request.UserID).Error; err == nil {
-				discountPrice, err := services.ApplyDiscountForUser(user)
-				if err != nil {
-					fmt.Println(err.Error())
-					return
-				}
-				order.DiscountPrice = float64(price) * discountPrice / 100
-			} else {
-				fmt.Println("Không tìm thấy người dùng")
-				return
-			}
-		}
-	}
-
-	var holidays []models.Holiday
-	if err := config.DB.Find(&holidays).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy thông tin ngày lễ"})
-		return
-	}
-
-	holidayPrice := 0
-	for _, holiday := range holidays {
-		fromDate, err := time.Parse("02/01/2006", holiday.FromDate)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Ngày bắt đầu kỳ nghỉ không hợp lệ"})
-			return
-		}
-
-		toDate, err := time.Parse("02/01/2006", holiday.ToDate)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Ngày kết thúc kỳ nghỉ không hợp lệ"})
-			return
-		}
-
-		if (checkInDate.Before(toDate) && checkOutDate.After(fromDate)) ||
-			checkInDate.Equal(fromDate) ||
-			checkOutDate.Equal(toDate) {
-			holidayPrice += holiday.Price
-		}
-	}
-	order.HolidayPrice = float64(price*holidayPrice) / 100
-
-	numDaysToCheckIn := int(checkInDate.Sub(order.CreatedAt).Hours() / 24)
-
-	if numDaysToCheckIn <= 3 {
-		order.CheckInRushPrice = float64(price*5) / 100
-	} else {
-		order.CheckInRushPrice = 0
-	}
-
-	order.TotalPrice = float64(price) + order.HolidayPrice + order.CheckInRushPrice + order.SoldOutPrice - order.DiscountPrice
-
-	if len(request.RoomID) > 0 {
-		order.RoomID = request.RoomID
-	} else {
-		order.RoomID = []uint{}
+		Status:          0,
+		TotalPrice:      float64(accommodation.Price),
+		Price:           accommodation.Price,
 	}
 
 	if err := config.DB.Create(&order).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo đơn", "detai": err})
+		response.ServerError(c)
 		return
 	}
 
-	if accommodation.Type == 0 && len(order.RoomID) > 0 {
-		var roomsToAppend []models.Room
-		for _, roomID := range request.RoomID {
-			roomsToAppend = append(roomsToAppend, models.Room{RoomId: roomID})
-		}
-
-		if err := config.DB.Model(&order).Association("Room").Append(roomsToAppend); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể liên kết phòng với đơn hàng", "detail": err})
-			return
-		}
-
-		for _, roomID := range request.RoomID {
-			roomStatus := models.RoomStatus{
-				RoomID:   roomID,
-				Status:   1,
-				FromDate: checkInDate,
-				ToDate:   checkOutDate,
-			}
-			if err := config.DB.Create(&roomStatus).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái phòng", "detail": err})
-				return
-			}
-		}
-	} else {
-		roomStatus := models.AccommodationStatus{
-			AccommodationID: request.AccommodationID,
-			Status:          1,
-			FromDate:        checkInDate,
-			ToDate:          checkOutDate,
-		}
-		if err := config.DB.Create(&roomStatus).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái phòng", "detail": err})
-			return
-		}
-	}
-
-	if err := config.DB.Preload("User").Preload("Accommodation").Preload("Room").First(&order, order.ID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tải dữ liệu đơn hàng sau khi tạo"})
+	var user models.User
+	if err := config.DB.First(&user, currentUserID).Error; err != nil {
+		response.ServerError(c)
 		return
 	}
 
-	var user Actor
+	response.Success(c, dto.OrderResponse{
+		ID:              order.ID,
+		UserID:          *order.UserID,
+		AccommodationID: order.AccommodationID,
+		TotalPrice:      order.TotalPrice,
+		Status:          order.Status,
+		CreatedAt:       order.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       order.UpdatedAt.Format(time.RFC3339),
+		User: types.InvoiceUserResponse{
+			ID:          user.ID,
+			Name:        user.Name,
+			Email:       user.Email,
+			PhoneNumber: user.PhoneNumber,
+		},
+		Accommodation: dto.AccommodationResponse{
+			ID:      order.Accommodation.ID,
+			Name:    order.Accommodation.Name,
+			Address: order.Accommodation.Address,
+			Price:   order.Accommodation.Price,
+		},
+	})
+}
+
+func GetOrderByID(c *gin.Context) {
+	id := c.Param("id")
+
+	var order models.Order
+	if err := config.DB.First(&order, id).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	var user models.User
 	if order.UserID != nil {
-		user = actor
-	} else {
-		user = actor
-	}
-
-	accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
-	var roomResponses []OrderRoomResponse
-	if len(request.RoomID) > 0 {
-		for _, room := range order.Room {
-			roomResponse := convertToOrderRoomResponse(room)
-			roomResponses = append(roomResponses, roomResponse)
+		if err := config.DB.First(&user, order.UserID).Error; err != nil {
+			response.NotFound(c)
+			return
 		}
 	}
 
-	orderResponse := OrderUserResponse{
+	var accommodation models.Accommodation
+	if err := config.DB.First(&accommodation, order.AccommodationID).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	var rooms []models.Room
+	if err := config.DB.Where("room_id IN ?", order.RoomID).Find(&rooms).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	var roomResponses []dto.OrderRoomResponse
+	for _, room := range rooms {
+		roomResponses = append(roomResponses, convertToOrderRoomResponse(room))
+	}
+
+	orderResponse := dto.OrderUserResponse{
 		ID:               order.ID,
-		User:             user,
-		Accommodation:    accommodationResponse,
+		User:             dto.ActorResponse{Name: user.Name, Email: user.Email, PhoneNumber: user.PhoneNumber},
+		Accommodation:    convertToOrderAccommodationResponse(accommodation),
 		Room:             roomResponses,
 		CheckInDate:      order.CheckInDate,
 		CheckOutDate:     order.CheckOutDate,
 		Status:           order.Status,
-		CreatedAt:        order.CreatedAt,
-		UpdatedAt:        order.UpdatedAt,
-		Price:            price,
+		CreatedAt:        order.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        order.UpdatedAt.Format(time.RFC3339),
+		Price:            order.Price,
 		HolidayPrice:     order.HolidayPrice,
 		CheckInRushPrice: order.CheckInRushPrice,
 		SoldOutPrice:     order.SoldOutPrice,
@@ -601,52 +230,202 @@ func CreateOrder(c *gin.Context) {
 		TotalPrice:       order.TotalPrice,
 	}
 
-	if orderResponse.User.Email != "" {
-		if err := services.SendOrderEmail(orderResponse.User.Email, order.ID, order.TotalPrice, order.CheckInDate, order.CheckOutDate); err != nil {
-			fmt.Println("Gửi email không thành công:", err)
+	response.Success(c, orderResponse)
+}
+
+func UpdateOrder(c *gin.Context) {
+	id := c.Param("id")
+
+	var order models.Order
+	if err := config.DB.First(&order, id).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	var request dto.CreateOrderRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, "Lỗi khi ràng buộc dữ liệu: "+err.Error())
+		return
+	}
+
+	// Kiểm tra phòng có tồn tại và còn trống không
+	var rooms []models.Room
+	if err := config.DB.Where("room_id IN ?", request.RoomID).Find(&rooms).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	if len(rooms) != len(request.RoomID) {
+		response.Error(c, http.StatusBadRequest, "Một số phòng không tồn tại")
+		return
+	}
+
+	// Kiểm tra phòng có trống trong khoảng thời gian đặt không
+	checkInDate, err := time.Parse("02/01/2006", request.CheckInDate)
+	if err != nil {
+		response.ValidationError(c, "Ngày nhận phòng không hợp lệ")
+		return
+	}
+
+	checkOutDate, err := time.Parse("02/01/2006", request.CheckOutDate)
+	if err != nil {
+		response.ValidationError(c, "Ngày trả phòng không hợp lệ")
+		return
+	}
+
+	for _, room := range rooms {
+		var existingOrders []models.Order
+		if err := config.DB.Where("room_id @> ? AND id != ?", []uint{room.RoomId}, order.ID).
+			Where("(check_in_date <= ? AND check_out_date >= ?) OR (check_in_date <= ? AND check_out_date >= ?)",
+				request.CheckOutDate, request.CheckInDate,
+				request.CheckInDate, request.CheckInDate).
+			Find(&existingOrders).Error; err != nil {
+			response.ServerError(c)
+			return
+		}
+
+		if len(existingOrders) > 0 {
+			response.Error(c, http.StatusBadRequest, fmt.Sprintf("Phòng %s đã được đặt trong khoảng thời gian này", room.RoomName))
+			return
 		}
 	}
 
-	//Xóa redis
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		cacheKey := "orders:all"
-		cacheKeyUser := fmt.Sprintf("orders:all:user:%d", currentUserID)
-
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "invoices:all")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:statuses")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:statuses")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
+	// Tính toán giá
+	var accommodation models.Accommodation
+	if err := config.DB.First(&accommodation, request.AccommodationID).Error; err != nil {
+		response.ServerError(c)
+		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo đơn thành công", "data": orderResponse})
+	// Tính số ngày ở
+	days := int(checkOutDate.Sub(checkInDate).Hours() / 24)
+
+	// Tính giá cơ bản
+	basePrice := 0
+	for _, room := range rooms {
+		basePrice += room.Price * days
+	}
+
+	// Tính giá lễ
+	holidayPrice := 0.0
+	var holidays []models.Holiday
+	if err := config.DB.Where("date BETWEEN ? AND ?", checkInDate, checkOutDate).Find(&holidays).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	for range holidays {
+		holidayPrice += float64(basePrice) * 0.1 // Tăng 10% vào ngày lễ
+	}
+
+	// Tính giá check-in gấp
+	checkInRushPrice := 0.0
+	if time.Now().Add(24 * time.Hour).After(checkInDate) {
+		checkInRushPrice = float64(basePrice) * 0.05 // Tăng 5% nếu check-in gấp
+	}
+
+	// Tính giá sold out
+	soldOutPrice := 0.0
+	if len(rooms) == 1 {
+		soldOutPrice = float64(basePrice) * 0.05 // Tăng 5% nếu chỉ còn 1 phòng
+	}
+
+	// Tính giá discount
+	discountPrice := 0.0
+	var discount models.Discount
+	if err := config.DB.Where("status = ? AND start_date <= ? AND end_date >= ?", 1, checkInDate, checkOutDate).First(&discount).Error; err == nil {
+		discountPrice = float64(basePrice) * float64(discount.Discount) / 100
+	}
+
+	// Tính tổng giá
+	totalPrice := float64(basePrice) + holidayPrice + checkInRushPrice + soldOutPrice - discountPrice
+
+	// Cập nhật order
+	userID := request.UserID
+	order.UserID = &userID
+	order.AccommodationID = request.AccommodationID
+	order.RoomID = request.RoomID
+	order.CheckInDate = request.CheckInDate
+	order.CheckOutDate = request.CheckOutDate
+	order.GuestName = request.GuestName
+	order.GuestEmail = request.GuestEmail
+	order.GuestPhone = request.GuestPhone
+	order.Price = basePrice
+	order.HolidayPrice = holidayPrice
+	order.CheckInRushPrice = checkInRushPrice
+	order.SoldOutPrice = soldOutPrice
+	order.DiscountPrice = discountPrice
+	order.TotalPrice = totalPrice
+	order.UpdatedAt = time.Now()
+
+	if err := config.DB.Save(&order).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, *order.UserID).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, dto.OrderResponse{
+		ID:              order.ID,
+		UserID:          *order.UserID,
+		AccommodationID: order.AccommodationID,
+		TotalPrice:      order.TotalPrice,
+		Status:          order.Status,
+		CreatedAt:       order.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       order.UpdatedAt.Format(time.RFC3339),
+		User: types.InvoiceUserResponse{
+			ID:          user.ID,
+			Name:        user.Name,
+			Email:       user.Email,
+			PhoneNumber: user.PhoneNumber,
+		},
+		Accommodation: dto.AccommodationResponse{
+			ID:      order.Accommodation.ID,
+			Name:    order.Accommodation.Name,
+			Address: order.Accommodation.Address,
+			Price:   order.Accommodation.Price,
+		},
+	})
+}
+
+func DeleteOrder(c *gin.Context) {
+	id := c.Param("id")
+
+	var order models.Order
+	if err := config.DB.First(&order, id).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	if err := config.DB.Delete(&order).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "Xóa đơn hàng thành công"})
 }
 
 func ChangeOrderStatus(c *gin.Context) {
-	type StatusUpdateRequest struct {
-		ID         uint    `json:"id"`
-		Status     int     `json:"status"`
-		PaidAmount float64 `json:"paidAmount"`
+	var req dto.StatusUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err.Error())
+		return
 	}
 
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
-	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
-		return
-	}
-
-	var req StatusUpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+	if _, _, err := services.GetUserIDFromToken(tokenString); err != nil {
+		response.Unauthorized(c)
 		return
 	}
 
@@ -654,17 +433,8 @@ func ChangeOrderStatus(c *gin.Context) {
 	if err := config.DB.
 		Preload("Accommodation.User").
 		First(&order, req.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Đơn hàng không tồn tại"})
+		response.NotFound(c)
 		return
-	}
-
-	timeSinceCreation := time.Since(order.CreatedAt).Hours()
-
-	if currentUserRole == 0 && req.Status == 2 {
-		if timeSinceCreation > 24 {
-			c.JSON(http.StatusAccepted, gin.H{"code": 0, "mess": "Liên hệ Admin để được hủy đơn"})
-			return
-		}
 	}
 
 	if req.Status == 2 {
@@ -673,11 +443,7 @@ func ChangeOrderStatus(c *gin.Context) {
 			if err := config.DB.Where("order_id = ?", order.ID).First(&invoice).Error; err == nil {
 				// Xóa invoice
 				if err := config.DB.Delete(&invoice).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"code": 0,
-						"mess": "Lỗi khi xóa hóa đơn",
-						"data": err.Error(),
-					})
+					response.ServerError(c)
 					return
 				}
 
@@ -695,29 +461,15 @@ func ChangeOrderStatus(c *gin.Context) {
 						"revenue":     newRevenue,
 						"order_count": newOrderCount,
 					}).Error; err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{
-							"code": 0,
-							"mess": "Lỗi khi cập nhật doanh thu người dùng sau xóa hóa đơn",
-							"data": err.Error(),
-						})
+						response.ServerError(c)
 						return
 					}
 				} else {
-
-					c.JSON(http.StatusNotFound, gin.H{
-						"code": 0,
-						"mess": "Không tìm thấy doanh thu người dùng trong ngày",
-						"data": nil,
-					})
+					response.NotFound(c)
 					return
 				}
 			} else {
-
-				c.JSON(http.StatusNotFound, gin.H{
-					"code": 0,
-					"mess": "Không tìm thấy invoice cho đơn hàng này",
-					"data": nil,
-				})
+				response.NotFound(c)
 				return
 			}
 		}
@@ -728,7 +480,7 @@ func ChangeOrderStatus(c *gin.Context) {
 				if err := config.DB.Where("room_id = ? AND status = ?", room.RoomId, 1).First(&roomStatus).Error; err == nil {
 					roomStatus.Status = 0
 					if err := config.DB.Save(&roomStatus).Error; err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái phòng"})
+						response.ServerError(c)
 						return
 					}
 				}
@@ -738,18 +490,17 @@ func ChangeOrderStatus(c *gin.Context) {
 			if err := config.DB.Where("accommodation_id = ? AND status = ?", order.AccommodationID, 1).First(&accommodationStatus).Error; err == nil {
 				accommodationStatus.Status = 0
 				if err := config.DB.Save(&accommodationStatus).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái accommodation"})
+					response.ServerError(c)
 					return
 				}
 			}
-
 		}
 	}
 
 	if req.Status == 1 {
 		var existingInvoice models.Invoice
 		if err := config.DB.Where("order_id = ?", order.ID).First(&existingInvoice).Error; err == nil {
-			c.JSON(http.StatusConflict, gin.H{"code": 0, "mess": "Hóa đơn đã tồn tại cho đơn hàng này"})
+			response.Error(c, http.StatusConflict, "Hóa đơn đã tồn tại cho đơn hàng này")
 			return
 		}
 
@@ -764,7 +515,7 @@ func ChangeOrderStatus(c *gin.Context) {
 		}
 
 		if err := config.DB.Create(&invoice).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo hóa đơn"})
+			response.ServerError(c)
 			return
 		}
 
@@ -773,7 +524,6 @@ func ChangeOrderStatus(c *gin.Context) {
 		var userRevenue models.UserRevenue
 		if err := config.DB.Where("user_id = ? AND date = ?", invoice.AdminID, today).First(&userRevenue).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-
 				newUserRevenue := models.UserRevenue{
 					UserID:     invoice.AdminID,
 					Date:       today,
@@ -781,53 +531,48 @@ func ChangeOrderStatus(c *gin.Context) {
 					OrderCount: 1,
 				}
 				if err := config.DB.Create(&newUserRevenue).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo doanh thu người dùng"})
+					response.ServerError(c)
 					return
 				}
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi truy vấn doanh thu người dùng"})
+				response.ServerError(c)
 				return
 			}
 		} else {
-
 			if err := config.DB.Model(&userRevenue).Updates(map[string]interface{}{
 				"revenue":     userRevenue.Revenue + invoice.TotalAmount,
 				"order_count": userRevenue.OrderCount + 1,
 			}).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi cập nhật doanh thu người dùng"})
+				response.ServerError(c)
 				return
 			}
 		}
-
 	}
 
 	order.Status = req.Status
 	order.UpdatedAt = time.Now()
 
 	if err := config.DB.Save(&order).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể chuyển trạng thái đơn hàng"})
+		response.ServerError(c)
 		return
 	}
 
-	rdb, redisErr := config.ConnectRedis()
-	if redisErr == nil {
-		// Xóa tất cả các key con của "invoices"
-		err := DeleteKeysByPattern(config.Ctx, rdb, "invoices:*")
-		if err != nil {
-			fmt.Printf("Lỗi khi xóa các key con của invoices: %v\n", err)
-		}
-
-		// Xóa các key khác
-		cacheKey := "orders:all"
-		cacheKeyUser := fmt.Sprintf("orders:all:user:%d", currentUserID)
-
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "accommodations:statuses")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, "rooms:statuses")
-		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
+	// Xóa cache
+	rdb, err := config.ConnectRedis()
+	if err != nil {
+		response.ServerError(c)
+		return
+	}
+	iter := rdb.Scan(context.Background(), 0, "orders:*", 0).Iterator()
+	for iter.Next(context.Background()) {
+		rdb.Del(context.Background(), iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		response.ServerError(c)
+		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Trạng thái đơn hàng đã được cập nhật"})
+	response.Success(c, gin.H{"message": "Trạng thái đơn hàng đã được cập nhật"})
 }
 
 func GetOrderDetail(c *gin.Context) {
@@ -839,25 +584,26 @@ func GetOrderDetail(c *gin.Context) {
 		Preload("Room").
 		Where("id = ?", orderId).
 		First(&order).Error; err != nil {
-
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "error": "Không tìm thấy Order"})
+		response.NotFound(c)
 		return
 	}
-	var user Actor
+
+	var user dto.ActorResponse
 	if order.UserID != nil {
-		user = Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
+		user = dto.ActorResponse{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
 	} else {
-		user = Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
+		user = dto.ActorResponse{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
 	}
 
 	accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
 
-	var roomResponses []OrderRoomResponse
+	var roomResponses []dto.OrderRoomResponse
 	for _, room := range order.Room {
 		roomResponse := convertToOrderRoomResponse(room)
 		roomResponses = append(roomResponses, roomResponse)
 	}
-	orderResponse := OrderUserResponse{
+
+	orderResponse := dto.OrderUserResponse{
 		ID:               order.ID,
 		User:             user,
 		Accommodation:    accommodationResponse,
@@ -865,8 +611,8 @@ func GetOrderDetail(c *gin.Context) {
 		CheckInDate:      order.CheckInDate,
 		CheckOutDate:     order.CheckOutDate,
 		Status:           order.Status,
-		CreatedAt:        order.CreatedAt,
-		UpdatedAt:        order.UpdatedAt,
+		CreatedAt:        order.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        order.UpdatedAt.Format(time.RFC3339),
 		Price:            order.Price,
 		HolidayPrice:     order.HolidayPrice,
 		CheckInRushPrice: order.CheckInRushPrice,
@@ -874,27 +620,27 @@ func GetOrderDetail(c *gin.Context) {
 		DiscountPrice:    order.DiscountPrice,
 		TotalPrice:       order.TotalPrice,
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 1, "data": orderResponse})
+
+	response.Success(c, orderResponse)
 }
 
 func GetOrdersByUserId(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
-	// Xử lý token
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	currentUserID, _, err := GetUserIDFromToken(tokenString)
+	currentUserID, _, err := services.GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "User not found"})
+		response.ServerError(c)
 		return
 	}
 
@@ -916,13 +662,13 @@ func GetOrdersByUserId(c *gin.Context) {
 	}
 
 	if user.PhoneNumber == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "User phone number is missing"})
+		response.BadRequest(c, "Số điện thoại người dùng không được để trống")
 		return
 	}
 
 	var ordersToUpdate []models.Order
 	if err := config.DB.Where("guest_phone = ? AND user_id IS NULL", user.PhoneNumber).Find(&ordersToUpdate).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error finding guest orders"})
+		response.ServerError(c)
 		return
 	}
 
@@ -930,7 +676,7 @@ func GetOrdersByUserId(c *gin.Context) {
 		if order.GuestPhone == user.PhoneNumber {
 			order.UserID = &currentUserID
 			if err := config.DB.Save(&order).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error updating guest orders"})
+				response.ServerError(c)
 				return
 			}
 		}
@@ -938,7 +684,7 @@ func GetOrdersByUserId(c *gin.Context) {
 
 	var totalOrders int64
 	if err := config.DB.Model(&models.Order{}).Where("user_id = ?", currentUserID).Count(&totalOrders).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi đếm đơn đặt"})
+		response.ServerError(c)
 		return
 	}
 
@@ -953,25 +699,31 @@ func GetOrdersByUserId(c *gin.Context) {
 		Find(&orders)
 
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy thông tin đơn đặt!"})
-		return
-	}
-	if len(orders) == 0 {
-		c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Không có đơn đặt nào!", "data": []models.Order{}})
+		response.ServerError(c)
 		return
 	}
 
-	orderResponses := make([]OrderUserResponse, 0)
+	if len(orders) == 0 {
+		response.Success(c, gin.H{
+			"data":  []dto.OrderUserResponse{},
+			"page":  page,
+			"limit": limit,
+			"total": totalOrders,
+		})
+		return
+	}
+
+	orderResponses := make([]dto.OrderUserResponse, 0)
 	for _, order := range orders {
-		var user Actor
+		var user dto.ActorResponse
 		if order.UserID != nil {
-			user = Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
+			user = dto.ActorResponse{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
 		} else {
-			user = Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
+			user = dto.ActorResponse{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
 		}
 
 		accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
-		var roomResponses []OrderRoomResponse
+		var roomResponses []dto.OrderRoomResponse
 		for _, room := range order.Room {
 			roomResponse := convertToOrderRoomResponse(room)
 			roomResponses = append(roomResponses, roomResponse)
@@ -985,7 +737,7 @@ func GetOrdersByUserId(c *gin.Context) {
 			}
 		}
 
-		orderResponse := OrderUserResponse{
+		orderResponse := dto.OrderUserResponse{
 			ID:               order.ID,
 			User:             user,
 			Accommodation:    accommodationResponse,
@@ -993,8 +745,8 @@ func GetOrdersByUserId(c *gin.Context) {
 			CheckInDate:      order.CheckInDate,
 			CheckOutDate:     order.CheckOutDate,
 			Status:           order.Status,
-			CreatedAt:        order.CreatedAt,
-			UpdatedAt:        order.UpdatedAt,
+			CreatedAt:        order.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        order.UpdatedAt.Format(time.RFC3339),
 			Price:            order.Price,
 			HolidayPrice:     order.HolidayPrice,
 			CheckInRushPrice: order.CheckInRushPrice,
@@ -1006,10 +758,103 @@ func GetOrdersByUserId(c *gin.Context) {
 		orderResponses = append(orderResponses, orderResponse)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Orders fetched successfully", "data": orderResponses,
+	response.Success(c, gin.H{
+		"data":  orderResponses,
 		"page":  page,
 		"limit": limit,
 		"total": totalOrders,
 	})
+}
 
+func GetOrder(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	currentUserID, currentUserRole, err := services.GetUserIDFromToken(tokenString)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	orderID := c.Param("id")
+	var order models.Order
+	query := config.DB.Preload("User").Preload("Accommodation").First(&order, orderID)
+
+	if currentUserRole == 1 {
+		query = query.Where("user_id = ?", currentUserID)
+	}
+
+	if err := query.Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	response.Success(c, dto.OrderResponse{
+		ID:              order.ID,
+		UserID:          *order.UserID,
+		AccommodationID: order.AccommodationID,
+		TotalPrice:      order.TotalPrice,
+		Status:          order.Status,
+		CreatedAt:       order.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       order.UpdatedAt.Format(time.RFC3339),
+		User: types.InvoiceUserResponse{
+			ID:          order.User.ID,
+			Name:        order.User.Name,
+			Email:       order.User.Email,
+			PhoneNumber: order.User.PhoneNumber,
+		},
+		Accommodation: dto.AccommodationResponse{
+			ID:      order.Accommodation.ID,
+			Name:    order.Accommodation.Name,
+			Address: order.Accommodation.Address,
+			Price:   order.Accommodation.Price,
+		},
+	})
+}
+
+func UpdateOrderStatus(c *gin.Context) {
+	var request dto.UpdateOrderStatusRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.ValidationError(c, err.Error())
+		return
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(c)
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	_, currentUserRole, err := services.GetUserIDFromToken(tokenString)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	if currentUserRole != 2 && currentUserRole != 3 {
+		response.Forbidden(c)
+		return
+	}
+
+	orderID := c.Param("id")
+	var order models.Order
+	if err := config.DB.First(&order, orderID).Error; err != nil {
+		response.NotFound(c)
+		return
+	}
+
+	order.Status = request.Status
+	if err := config.DB.Save(&order).Error; err != nil {
+		response.ServerError(c)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"message": "Cập nhật trạng thái order thành công",
+	})
 }
