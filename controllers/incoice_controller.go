@@ -71,6 +71,7 @@ func GetInvoices(c *gin.Context) {
 
 	var allInvoices []dto.InvoiceResponse
 
+	// Lấy hóa đơn từ cache nếu có
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &allInvoices); err != nil || len(allInvoices) == 0 {
 		tx := config.DB.Model(&models.Invoice{})
 
@@ -97,8 +98,16 @@ func GetInvoices(c *gin.Context) {
 			return
 		}
 
+		// Duyệt qua danh sách hóa đơn để chuyển đổi sang InvoiceResponse và thêm thông tin user/guest
 		for _, invoice := range invoices {
-			allInvoices = append(allInvoices, dto.InvoiceResponse{
+			var order models.Order
+
+			if err := config.DB.Where("id = ?", invoice.OrderID).First(&order).Error; err != nil {
+
+				continue
+			}
+
+			invoiceResp := dto.InvoiceResponse{
 				ID:              invoice.ID,
 				InvoiceCode:     invoice.InvoiceCode,
 				OrderID:         invoice.OrderID,
@@ -110,14 +119,38 @@ func GetInvoices(c *gin.Context) {
 				CreatedAt:       invoice.CreatedAt.Format("2006-01-02 15:04:05"),
 				UpdatedAt:       invoice.UpdatedAt.Format("2006-01-02 15:04:05"),
 				AdminID:         invoice.AdminID,
-			})
+			}
+
+			if order.UserID != nil {
+				var user models.User
+				if err := config.DB.Where("id = ?", order.UserID).First(&user).Error; err == nil {
+					invoiceResp.User = dto.InvoiceUserResponse{
+						ID:          user.ID,
+						Name:        user.Name,
+						Email:       user.Email,
+						PhoneNumber: user.PhoneNumber,
+					}
+				}
+			} else {
+				invoiceResp.User = dto.InvoiceUserResponse{
+					ID:          0,
+					Name:        order.GuestName,
+					Email:       order.GuestEmail,
+					PhoneNumber: order.GuestPhone,
+				}
+
+			}
+
+			allInvoices = append(allInvoices, invoiceResp)
 		}
 
+		// Cập nhật cache nếu cần
 		if err := services.SetToRedis(config.Ctx, rdb, cacheKey, allInvoices, 60*time.Minute); err != nil {
 			log.Printf("Error caching invoices: %v", err)
 		}
 	}
 
+	// Áp dụng filter theo invoiceCode và status
 	filteredInvoices := make([]dto.InvoiceResponse, 0)
 	for _, invoice := range allInvoices {
 		if invoiceCodeFilter != "" {
@@ -135,11 +168,13 @@ func GetInvoices(c *gin.Context) {
 		filteredInvoices = append(filteredInvoices, invoice)
 	}
 
+	// Sắp xếp theo CreatedAt giảm dần
 	sort.Slice(filteredInvoices, func(i, j int) bool {
 		return filteredInvoices[i].CreatedAt > filteredInvoices[j].CreatedAt
 	})
 	total := len(filteredInvoices)
 
+	// Phân trang
 	start := page * limit
 	end := start + limit
 	if start >= total {
