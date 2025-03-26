@@ -1,7 +1,5 @@
 package dto
 
-import "new/types"
-
 // InvoiceResponse là DTO cho response của invoice
 type InvoiceResponse struct {
 	ID              uint                `json:"id"`
@@ -38,13 +36,6 @@ type TotalResponse struct {
 	VatLastMonth         float64             `json:"vatLastMonth"`
 }
 
-// MonthRevenue là DTO cho doanh thu theo tháng
-type MonthRevenue struct {
-	Month      string  `json:"month"`
-	Revenue    float64 `json:"revenue"`
-	OrderCount int     `json:"orderCount"`
-}
-
 // UpdatePaymentRequest là DTO cho request cập nhật thanh toán
 type UpdatePaymentRequest struct {
 	ID          uint `json:"id"`
@@ -68,24 +59,4 @@ type CreateInvoiceRequest struct {
 // UpdateInvoiceRequest là DTO cho request cập nhật invoice
 type UpdateInvoiceRequest struct {
 	PaidAmount float64 `json:"paidAmount" binding:"required"`
-}
-
-// UserRevenueResponse là DTO cho response doanh thu theo user
-type UserRevenueResponse struct {
-	ID         uint                      `json:"id"`
-	Date       string                    `json:"date"`
-	OrderCount int                       `json:"orderCount"`
-	Revenue    float64                   `json:"revenue"`
-	User       types.InvoiceUserResponse `json:"user"`
-}
-
-// RevenueResponse là DTO cho response doanh thu
-type RevenueResponse struct {
-	TotalRevenue         float64        `json:"totalRevenue"`
-	CurrentMonthRevenue  float64        `json:"currentMonthRevenue"`
-	LastMonthRevenue     float64        `json:"lastMonthRevenue"`
-	CurrentWeekRevenue   float64        `json:"currentWeekRevenue"`
-	MonthlyRevenue       []MonthRevenue `json:"monthlyRevenue"`
-	VAT                  float64        `json:"vat"`
-	ActualMonthlyRevenue float64        `json:"actualMonthlyRevenue"`
 }

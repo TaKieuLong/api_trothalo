@@ -3,10 +3,10 @@ package controllers
 import (
 	"database/sql"
 	"fmt"
-	"net/http"
 	"new/config"
 	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"sort"
 	"strconv"
@@ -16,51 +16,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type RevenueResponse struct {
-	TotalRevenue         float64            `json:"totalRevenue"`
-	CurrentMonthRevenue  float64            `json:"currentMonthRevenue"`
-	LastMonthRevenue     float64            `json:"lastMonthRevenue"`
-	CurrentWeekRevenue   float64            `json:"currentWeekRevenue"`
-	MonthlyRevenue       []dto.MonthRevenue `json:"monthlyRevenue"`
-	VAT                  float64            `json:"vat"`
-	ActualMonthlyRevenue float64            `json:"actualMonthlyRevenue"`
-}
-
-type UserRevenueResponse struct {
-	ID         uint    `json:"id"`
-	Date       string  `json:"date"`
-	OrderCount int     `json:"order_count"`
-	Revenue    float64 `json:"revenue"`
-	User       struct {
-		ID          uint   `json:"id"`
-		Name        string `json:"name"`
-		Email       string `json:"email"`
-		PhoneNumber string `json:"phone_number"`
-	} `json:"user"`
-}
-
 func GetTotalRevenue(c *gin.Context) {
 	var totalRevenue, currentMonthRevenue, currentWeekRevenue float64
 	var lastMonthRevenue sql.NullFloat64
 	var monthlyRevenue []dto.MonthRevenue
-	var vat, actualMonthlyRevenue float64 // Thêm VAT và doanh thu thực tháng này
+	var vat, actualMonthlyRevenue float64
 
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
-	// Chỉ xử lý cho role 1 và role 2
 	if currentUserRole != 1 && currentUserRole != 2 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+		response.Forbidden(c)
 		return
 	}
 
@@ -74,7 +50,7 @@ func GetTotalRevenue(c *gin.Context) {
 
 	var invoices []models.Invoice
 	if err := tx.Find(&invoices).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Không thể lấy danh sách hóa đơn"})
+		response.ServerError(c)
 		return
 	}
 
@@ -118,7 +94,6 @@ func GetTotalRevenue(c *gin.Context) {
 	}
 
 	if currentUserRole == 1 {
-		// Tính doanh thu cho role 1
 		totalRevenue *= 0.30
 		currentMonthRevenue *= 0.30
 		lastMonthRevenue.Float64 *= 0.30
@@ -127,13 +102,12 @@ func GetTotalRevenue(c *gin.Context) {
 			monthlyRevenue[i].Revenue *= 0.30
 		}
 	} else if currentUserRole == 2 {
-		// Tính doanh thu cho role 2
 		vat = currentMonthRevenue * 30 / 100
 		actualMonthlyRevenue = currentMonthRevenue - vat
 		totalRevenue -= (totalRevenue * 30 / 100)
 	}
 
-	response := RevenueResponse{
+	responseData := dto.RevenueResponse{
 		TotalRevenue:         totalRevenue,
 		CurrentMonthRevenue:  currentMonthRevenue,
 		LastMonthRevenue:     lastMonthRevenue.Float64,
@@ -143,25 +117,25 @@ func GetTotalRevenue(c *gin.Context) {
 		ActualMonthlyRevenue: actualMonthlyRevenue,
 	}
 
-	c.JSON(http.StatusOK, response)
+	response.Success(c, responseData)
 }
 
 func GetTotal(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
+	_, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 1 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		response.Forbidden(c)
 		return
 	}
 
@@ -176,14 +150,13 @@ func GetTotal(c *gin.Context) {
 	}
 
 	if err := query.Find(&users).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách người dùng"})
+		response.ServerError(c)
 		return
 	}
 
 	calculateRevenue := func(userID uint) (float64, float64, float64, float64, float64, float64, float64, error) {
 		var totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue float64
 
-		// Tổng doanh thu
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ?", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
@@ -191,7 +164,6 @@ func GetTotal(c *gin.Context) {
 			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
-		// Doanh thu tháng hiện tại
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
@@ -199,7 +171,6 @@ func GetTotal(c *gin.Context) {
 			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
-		// Doanh thu tháng trước
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ? AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 MONTH') AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
@@ -207,7 +178,6 @@ func GetTotal(c *gin.Context) {
 			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
-		// Doanh thu tuần hiện tại
 		if err := config.DB.Model(&models.Invoice{}).
 			Where("admin_id = ? AND EXTRACT(WEEK FROM created_at) = EXTRACT(WEEK FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)", userID).
 			Select("COALESCE(SUM(total_amount), 0)").
@@ -215,11 +185,8 @@ func GetTotal(c *gin.Context) {
 			return 0, 0, 0, 0, 0, 0, 0, nil
 		}
 
-		// Tính VAT (30% của doanh thu tháng hiện tại và tháng trước)
 		vat := currentMonthRevenue * 0.3
 		vatLastMonth := lastMonthRevenue * 0.3
-
-		// Tính doanh thu thực tế hàng tháng (doanh thu tháng hiện tại trừ VAT)
 		actualMonthlyRevenue := currentMonthRevenue - vat
 
 		return totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, vatLastMonth, actualMonthlyRevenue, nil
@@ -230,7 +197,7 @@ func GetTotal(c *gin.Context) {
 		totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, vatLastMonth, actualMonthlyRevenue, err := calculateRevenue(user.ID)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": fmt.Sprintf("Không thể tính doanh thu cho người dùng %d", user.ID)})
+			response.ServerError(c)
 			return
 		}
 
@@ -250,29 +217,25 @@ func GetTotal(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy doanh thu của người dùng thành công",
-		"data": totalResponses,
-	})
+	response.Success(c, totalResponses)
 }
 
 func GetToday(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Thiếu header Authorization"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 2 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập", "id": currentUserID})
+		response.Forbidden(c)
 		return
 	}
 
@@ -286,11 +249,7 @@ func GetToday(c *gin.Context) {
 	if err := config.DB.
 		Where("user_id = ? ", currentUserID).
 		Find(&revenues).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 0,
-			"mess": "Không thể lấy doanh thu của người dùng",
-			"err":  err.Error(),
-		})
+		response.ServerError(c)
 		return
 	}
 
@@ -320,33 +279,20 @@ func GetToday(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy doanh thu của người dùng thành công",
-		"data": result,
-	})
+	response.Success(c, result)
 }
 
 func GetTodayUser(c *gin.Context) {
 	revenues, err := services.GetTodayUserRevenue()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 0,
-			"mess": "Lỗi khi lấy doanh thu của người dùng",
-			"err":  err.Error(),
-		})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy doanh thu của người dùng thành công",
-		"data": revenues,
-	})
+	response.Success(c, revenues)
 }
 
 func GetUserRevene(c *gin.Context) {
-
 	fromDateStr := c.Query("fromDate")
 	toDateStr := c.Query("toDate")
 	nameFilter := c.Query("name")
@@ -373,7 +319,7 @@ func GetUserRevene(c *gin.Context) {
 	if fromDateStr != "" {
 		fromDate, err := time.Parse("02/01/2006", fromDateStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "fromDate không hợp lệ, định dạng: dd/mm/yyyy"})
+			response.BadRequest(c, "fromDate không hợp lệ, định dạng: dd/mm/yyyy")
 			return
 		}
 		dbQuery = dbQuery.Where("date >= ?", fromDate)
@@ -382,7 +328,7 @@ func GetUserRevene(c *gin.Context) {
 	if toDateStr != "" {
 		toDate, err := time.Parse("02/01/2006", toDateStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "toDate không hợp lệ, định dạng: dd/mm/yyyy"})
+			response.BadRequest(c, "toDate không hợp lệ, định dạng: dd/mm/yyyy")
 			return
 		}
 		dbQuery = dbQuery.Where("date <= ?", toDate)
@@ -390,17 +336,13 @@ func GetUserRevene(c *gin.Context) {
 
 	var revenues []models.UserRevenue
 	if err := dbQuery.Find(&revenues).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 0,
-			"mess": "Không thể lấy doanh thu của người dùng",
-			"err":  err.Error(),
-		})
+		response.ServerError(c)
 		return
 	}
 
-	var responses []UserRevenueResponse
+	var responses []dto.UserRevenueResponse
 	for _, rev := range revenues {
-		var resp UserRevenueResponse
+		var resp dto.UserRevenueResponse
 		resp.ID = rev.ID
 		resp.Date = rev.Date.Format("2006-01-02")
 		resp.OrderCount = rev.OrderCount
@@ -415,7 +357,7 @@ func GetUserRevene(c *gin.Context) {
 	}
 
 	if nameFilter != "" {
-		var filtered []UserRevenueResponse
+		var filtered []dto.UserRevenueResponse
 		normalizedFilter := removeDiacritics(strings.ToLower(strings.ReplaceAll(nameFilter, " ", "")))
 		for _, resp := range responses {
 			normalizedName := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.Name, " ", "")))
@@ -438,21 +380,12 @@ func GetUserRevene(c *gin.Context) {
 	end := start + limit
 
 	if start >= total {
-		responses = []UserRevenueResponse{}
+		responses = []dto.UserRevenueResponse{}
 	} else if end > total {
 		responses = responses[start:]
 	} else {
 		responses = responses[start:end]
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy doanh thu của người dùng thành công",
-		"data": responses,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	response.SuccessWithPagination(c, responses, page, limit, total)
 }
