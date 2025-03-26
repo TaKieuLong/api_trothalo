@@ -105,6 +105,7 @@ type ResetPasswordRequest struct {
 	Token       string `json:"token" binding:"required"`
 	NewPassword string `json:"newPassword" binding:"required"`
 }
+
 type UserResponseUpdate struct {
 	ID               uint           `json:"id"`
 	Name             string         `json:"name"`

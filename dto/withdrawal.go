@@ -3,16 +3,13 @@ package dto
 import "time"
 
 type WithdrawalHistoryResponse struct {
-	ID              uint          `json:"id"`
-	UserID          uint          `json:"userId"`
-	Amount          int64         `json:"amount"`
-	Status          int           `json:"status"`
-	CreatedAt       time.Time     `json:"createdAt"`
-	UpdatedAt       time.Time     `json:"updatedAt"`
-	User            *UserResponse `json:"user,omitempty"`
-	Bank            *Bank         `json:"bank,omitempty"`
-	Reason          string        `json:"reason"`
-	TransactionCode string        `json:"transactionCode"`
+	ID        uint      `json:"id"`
+	Amount    int64     `json:"amount"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	User      Actor     `json:"user"`
+	Reason    string    `json:"reason"`
 }
 
 type WithdrawalHistoryListResponse struct {
@@ -23,17 +20,13 @@ type WithdrawalHistoryListResponse struct {
 }
 
 type CreateWithdrawalRequest struct {
-	Amount          int64  `json:"amount" binding:"required,min=1"`
-	BankID          uint   `json:"bankId" binding:"required"`
-	Reason          string `json:"reason"`
-	TransactionCode string `json:"transactionCode"`
+	Amount int64 `json:"amount" binding:"required,min=1"`
 }
 
 type UpdateWithdrawalStatusRequest struct {
-	ID              uint   `json:"id" binding:"required"`
-	Status          string `json:"status" binding:"required,min=0,max=2"`
-	Reason          string `json:"reason"`
-	TransactionCode string `json:"transactionCode"`
+	ID     uint   `json:"id" binding:"required"`
+	Status string `json:"status" binding:"required,min=0,max=2"`
+	Reason string `json:"reason"`
 }
 
 type WithdrawalHistoryFilter struct {

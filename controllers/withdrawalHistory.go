@@ -86,7 +86,6 @@ func CreateWithdrawalHistory(c *gin.Context) {
 	withdrawal := models.WithdrawalHistory{
 		UserID: currentUserID,
 		Amount: input.Amount,
-		Reason: input.Reason,
 	}
 
 	if err := config.DB.Create(&withdrawal).Error; err != nil {
@@ -116,9 +115,8 @@ func GetWithdrawalHistory(c *gin.Context) {
 		return
 	}
 
-	// Lấy dữ liệu từ DB
 	var withdrawals []models.WithdrawalHistory
-	dbQuery := config.DB.Preload("User").Preload("User.Banks").Preload("Bank")
+	dbQuery := config.DB.Preload("User").Preload("User.Banks")
 	if currentUserRole == 2 {
 		dbQuery = dbQuery.Where("user_id = ?", currentUserID)
 	}
@@ -131,43 +129,33 @@ func GetWithdrawalHistory(c *gin.Context) {
 	// Chuyển đổi dữ liệu thành responses
 	var responses []dto.WithdrawalHistoryResponse
 	for _, w := range withdrawals {
-		status, _ := strconv.Atoi(w.Status)
 		resp := dto.WithdrawalHistoryResponse{
 			ID:        w.ID,
-			UserID:    w.UserID,
 			Amount:    w.Amount,
-			Status:    status,
+			Status:    w.Status,
 			CreatedAt: w.CreatedAt,
 			UpdatedAt: w.UpdatedAt,
 			Reason:    w.Reason,
-		}
-
-		if w.User.ID > 0 {
-			resp.User = &dto.UserResponse{
-				ID:          w.User.ID,
+			User: dto.Actor{
 				Name:        w.User.Name,
 				Email:       w.User.Email,
 				PhoneNumber: w.User.PhoneNumber,
-			}
+			},
 		}
 
 		if len(w.User.Banks) > 0 {
-			resp.Bank = &dto.Bank{
-				BankName:      w.User.Banks[0].BankName,
-				AccountNumber: w.User.Banks[0].AccountNumber,
-				BankShortName: w.User.Banks[0].BankShortName,
-			}
+			resp.User.BankShortName = w.User.Banks[0].BankShortName
+			resp.User.AccountNumber = w.User.Banks[0].AccountNumber
+			resp.User.BankName = w.User.Banks[0].BankName
 		}
-
 		responses = append(responses, resp)
 	}
 
 	statusFilter := c.Query("status")
 	if statusFilter != "" {
 		var filtered []dto.WithdrawalHistoryResponse
-		status, _ := strconv.Atoi(statusFilter)
 		for _, resp := range responses {
-			if resp.Status == status {
+			if resp.Status == statusFilter {
 				filtered = append(filtered, resp)
 			}
 		}
@@ -179,12 +167,10 @@ func GetWithdrawalHistory(c *gin.Context) {
 		var filtered []dto.WithdrawalHistoryResponse
 		normalizedFilter := removeDiacritics(strings.ToLower(strings.ReplaceAll(nameFilter, " ", "")))
 		for _, resp := range responses {
-			if resp.User != nil {
-				normalizedName := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.Name, " ", "")))
-				normalizedPhone := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.PhoneNumber, " ", "")))
-				if strings.Contains(normalizedName, normalizedFilter) || strings.Contains(normalizedPhone, normalizedFilter) {
-					filtered = append(filtered, resp)
-				}
+			normalizedName := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.Name, " ", "")))
+			normalizedPhone := removeDiacritics(strings.ToLower(strings.ReplaceAll(resp.User.PhoneNumber, " ", "")))
+			if strings.Contains(normalizedName, normalizedFilter) || strings.Contains(normalizedPhone, normalizedFilter) {
+				filtered = append(filtered, resp)
 			}
 		}
 		responses = filtered
