@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"new/config"
 	"new/dto"
+	"new/response"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,41 +32,17 @@ func NewUserController(mySQL *gorm.DB, redisCli *redis.Client) UserController {
 	}
 }
 
-type CreateUserRequest struct {
-	Name          string `json:"name"`
-	Email         string `json:"email" binding:"required,email"`
-	Password      string `json:"password" binding:"required"`
-	PhoneNumber   string `json:"phoneNumber" binding:"required"`
-	Role          int    `json:"role"`
-	BankId        int    `json:"bankId"`
-	AccountNumber string `json:"accountNumber"`
-	Amount        int64  `json:"amount"`
-}
-
-type UpdateUser struct {
-	Name        string `json:"name"`
-	PhoneNumber string `json:"phoneNumber"`
-	Avatar      string `json:"avatar"`
-	DateOfBirth string `json:"dateOfBirth"`
-	Gender      int    `json:"gender"`
-}
-
-type StausUser struct {
-	Status int  `json:"status"`
-	Id     uint `json:"id" binding:"required"`
-}
-
 func (u UserController) GetUsers(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -92,7 +69,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 	} else if currentUserRole == 2 {
 		cacheKey = fmt.Sprintf("users:role_3:admin_%d", currentUserID)
 	} else {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền truy cập danh sách này"})
+		response.Forbidden(c)
 		return
 	}
 
@@ -122,7 +99,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 		}
 
 		if err := query.Find(&allUsers).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách người dùng"})
+			response.ServerError(c)
 			return
 		}
 
@@ -244,35 +221,26 @@ func (u UserController) GetUsers(c *gin.Context) {
 
 	paginatedUsers := userResponses[start:end]
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách người dùng thành công",
-		"data": paginatedUsers,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": len(userResponses),
-		},
-	})
+	response.SuccessWithPagination(c, paginatedUsers, page, limit, len(userResponses))
 }
 
 func (u *UserController) CreateUser(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
-	var req CreateUserRequest
+	var req dto.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -280,42 +248,35 @@ func (u *UserController) CreateUser(c *gin.Context) {
 		if req.Role == 3 {
 			var admin models.User
 			if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy admin với ID: " + fmt.Sprint(currentUserID)})
+				response.BadRequest(c, "Không tìm thấy admin với ID: "+fmt.Sprint(currentUserID))
 				return
 			}
 		}
 
-		//skip validate stk
-		// var bankFake models.BankFake
-		// if err := u.DB.Where("id = ? AND account_numbers::jsonb @> ?", req.BankId, fmt.Sprintf(`["%s"]`, req.AccountNumber)).First(&bankFake).Error; err != nil {
-		// 	c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không có số tài khoản phù hợp"})
-		// 	return
-		// }
-
 		var bankFake models.BankFake
-		if err := u.DB.Where("id = ?", req.BankId).First(&bankFake).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy ngân hàng giả"})
+		if err := u.DB.Where("id = ?", req.BankID).First(&bankFake).Error; err != nil {
+			response.BadRequest(c, "Không tìm thấy ngân hàng giả")
 			return
 		}
 
 		var existingBank models.Bank
 		if err := u.DB.Where("account_number = ?", req.AccountNumber).First(&existingBank).Error; err == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Số tài khoản đã có người sử dụng"})
+			response.Conflict(c)
 			return
 		}
 
 		userValues := models.User{
 			Email:       req.Email,
 			Password:    req.Password,
-			PhoneNumber: req.PhoneNumber,
+			PhoneNumber: req.Phone,
 			Role:        req.Role,
-			Name:        req.Name,
+			Name:        req.Username,
 			Amount:      req.Amount,
 		}
 
 		user, err := services.CreateUser(userValues)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+			response.BadRequest(c, err.Error())
 			return
 		}
 
@@ -327,13 +288,13 @@ func (u *UserController) CreateUser(c *gin.Context) {
 		}
 
 		if err := u.DB.Create(&bank).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo ngân hàng: " + err.Error()})
+			response.ServerError(c)
 			return
 		}
 
 		user.Banks = append(user.Banks, bank)
 		if err := u.DB.Save(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật thông tin người dùng: " + err.Error()})
+			response.ServerError(c)
 			return
 		}
 
@@ -359,9 +320,9 @@ func (u *UserController) CreateUser(c *gin.Context) {
 			}
 		}
 
-		c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo người dùng thành công", "data": user})
+		response.Success(c, user)
 	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Vai trò không hợp lệ", "fake": req})
+		response.BadRequest(c, "Vai trò không hợp lệ")
 		return
 	}
 }
@@ -371,7 +332,7 @@ func (u UserController) GetUserByID(c *gin.Context) {
 	id := c.Param("id")
 
 	if err := u.DB.First(&user, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -396,40 +357,40 @@ func (u UserController) GetUserByID(c *gin.Context) {
 		Status:      user.Status,
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy người dùng thành công", "data": userResponse})
+	response.Success(c, userResponse)
 }
 
 func (u UserController) UpdateUser(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
-	var updateUser UpdateUser
+	var updateUser dto.UpdateUserRequest
 	if err := c.ShouldBindJSON(&updateUser); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	var user models.User
 	if err := u.DB.Preload("Banks").First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
-	if updateUser.Name != "" && updateUser.Name != " " {
-		user.Name = updateUser.Name
+	if updateUser.Username != "" && updateUser.Username != " " {
+		user.Name = updateUser.Username
 	}
-	if updateUser.PhoneNumber != "" && updateUser.PhoneNumber != " " {
-		user.PhoneNumber = updateUser.PhoneNumber
+	if updateUser.Phone != "" && updateUser.Phone != " " {
+		user.PhoneNumber = updateUser.Phone
 	}
 	if updateUser.Avatar != "" && updateUser.Avatar != " " {
 		user.Avatar = updateUser.Avatar
@@ -442,7 +403,7 @@ func (u UserController) UpdateUser(c *gin.Context) {
 	}
 
 	if err := u.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -484,69 +445,65 @@ func (u UserController) UpdateUser(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật người dùng thành công", "data": userResponse})
+	response.Success(c, userResponse)
 }
 
 func (u UserController) ChangeUserStatus(c *gin.Context) {
-
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
-	var statusRequest StausUser
+	var statusRequest dto.UserStatusRequest
 	if err := c.ShouldBindJSON(&statusRequest); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	var user models.User
 
 	if currentUserRole == 2 {
-
-		if err := u.DB.Where("id = ? AND admin_id = ?", statusRequest.Id, currentUserID).First(&user).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại hoặc không thuộc quyền quản lý của admin"})
+		if err := u.DB.Where("id = ? AND admin_id = ?", statusRequest.ID, currentUserID).First(&user).Error; err != nil {
+			response.NotFound(c)
 			return
 		}
 	} else if currentUserRole == 1 {
-
-		if err := u.DB.First(&user, statusRequest.Id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		if err := u.DB.First(&user, statusRequest.ID).Error; err != nil {
+			response.NotFound(c)
 			return
 		}
 
 		if user.Role == 2 {
 			var childUsers []models.User
 			if err := u.DB.Where("admin_id = ?", user.ID).Find(&childUsers).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tìm tài khoản con"})
+				response.ServerError(c)
 				return
 			}
 
 			for _, child := range childUsers {
 				child.Status = statusRequest.Status
 				if err := u.DB.Save(&child).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái của tài khoản con"})
+					response.ServerError(c)
 					return
 				}
 			}
 		}
 	} else {
-
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Tài khoản này không có quyền cập nhật trạng thái"})
+		response.Forbidden(c)
 		return
 	}
 
 	user.Status = statusRequest.Status
 	if err := u.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -562,7 +519,7 @@ func (u UserController) ChangeUserStatus(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái người dùng thành công", "data": user})
+	response.Success(c, user)
 }
 
 // Get Detail Receptionist
@@ -575,7 +532,7 @@ func (u UserController) GetReceptionistByID(c *gin.Context) {
 		First(&user).Error
 
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
