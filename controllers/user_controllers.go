@@ -386,11 +386,11 @@ func (u UserController) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	if updateUser.Username != "" && updateUser.Username != " " {
-		user.Name = updateUser.Username
+	if updateUser.Name != "" && updateUser.Name != " " {
+		user.Name = updateUser.Name
 	}
-	if updateUser.Phone != "" && updateUser.Phone != " " {
-		user.PhoneNumber = updateUser.Phone
+	if updateUser.PhoneNumber != "" && updateUser.PhoneNumber != " " {
+		user.PhoneNumber = updateUser.PhoneNumber
 	}
 	if updateUser.Avatar != "" && updateUser.Avatar != " " {
 		user.Avatar = updateUser.Avatar
@@ -624,7 +624,7 @@ func (u UserController) GetProfile(c *gin.Context) {
 		return
 	}
 
-	if err := u.DB.First(&user, id).Error; err != nil {
+	if err := u.DB.Preload("Banks").First(&user, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
 		return
 	}

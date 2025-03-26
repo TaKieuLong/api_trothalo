@@ -41,10 +41,9 @@ type CreateUserRequest struct {
 	Amount        int64  `json:"amount"`
 }
 
-// UpdateUserRequest định nghĩa request cập nhật user
 type UpdateUserRequest struct {
-	Username    string `json:"username"`
-	Phone       string `json:"phone"`
+	Name        string `json:"name"`
+	PhoneNumber string `json:"phoneNumber"`
 	Avatar      string `json:"avatar"`
 	DateOfBirth string `json:"dateOfBirth"`
 	Gender      int    `json:"gender"`
