@@ -116,3 +116,11 @@ func BadRequest(c *gin.Context, message string) {
 		Mess: message,
 	})
 }
+
+// Conflict trả về response conflict (409)
+func Conflict(c *gin.Context) {
+	c.JSON(http.StatusConflict, Response{
+		Code: 0,
+		Mess: "Xung đột dữ liệu",
+	})
+}

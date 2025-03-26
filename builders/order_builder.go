@@ -44,13 +44,13 @@ func (b *OrderBuilder) WithGuestInfo(guestName, guestPhone, guestEmail string) *
 
 // WithCheckIn thêm thời gian check-in
 func (b *OrderBuilder) WithCheckIn(checkIn string) *OrderBuilder {
-	b.order.CheckIn = checkIn
+	b.order.CheckInDate = checkIn
 	return b
 }
 
 // WithCheckOut thêm thời gian check-out
 func (b *OrderBuilder) WithCheckOut(checkOut string) *OrderBuilder {
-	b.order.CheckOut = checkOut
+	b.order.CheckOutDate = checkOut
 	return b
 }
 

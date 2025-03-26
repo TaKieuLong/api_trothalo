@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
 	"new/config"
 	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"sort"
 	"strconv"
@@ -55,7 +55,7 @@ func GetOrders(c *gin.Context) {
 	// Lấy Authorization Header
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -63,7 +63,7 @@ func GetOrders(c *gin.Context) {
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -71,8 +71,8 @@ func GetOrders(c *gin.Context) {
 	cacheKey := fmt.Sprintf("orders:all:user:%d", currentUserID)
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-		return
+		response.ServerError(c)
+
 	}
 
 	var allOrders []models.Order
@@ -94,7 +94,7 @@ func GetOrders(c *gin.Context) {
 			// Receptionist: Lọc theo các chỗ ở thuộc về Admin của Receptionist
 			var adminID int
 			if err := config.DB.Model(&models.User{}).Select("admin_id").Where("id = ?", currentUserID).Scan(&adminID).Error; err != nil || adminID == 0 {
-				c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+				response.Forbidden(c)
 				return
 			}
 			baseTx = baseTx.Where("orders.accommodation_id IN (?)",
@@ -103,7 +103,7 @@ func GetOrders(c *gin.Context) {
 
 		// Truy vấn tất cả đơn hàng từ DB
 		if err := baseTx.Find(&allOrders).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách đơn hàng"})
+			response.ServerError(c)
 			return
 		}
 
@@ -163,7 +163,7 @@ func GetOrders(c *gin.Context) {
 		if fromDateStr != "" {
 			fromDateISO, err := ConvertDateToISOFormat(fromDateStr)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng fromDate"})
+				response.BadRequest(c, "Sai định dạng fromDate")
 				return
 			}
 			if order.CreatedAt.Before(fromDateISO) {
@@ -173,7 +173,7 @@ func GetOrders(c *gin.Context) {
 		if toDateStr != "" {
 			toDateISO, err := ConvertDateToISOFormat(toDateStr)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng toDate"})
+				response.BadRequest(c, "Sai định dạng toDate")
 				return
 			}
 			if order.UpdatedAt.After(toDateISO) {
@@ -244,22 +244,15 @@ func GetOrders(c *gin.Context) {
 		orderResponses = append(orderResponses, orderResponse)
 	}
 
-	// Phản hồi kết quả
-	c.JSON(http.StatusOK, gin.H{
-		"code":       1,
-		"mess":       "Lấy danh sách đơn hàng thành công",
-		"data":       orderResponses,
-		"pagination": gin.H{"page": page, "limit": limit, "total": totalFiltered},
-	})
+	response.SuccessWithPagination(c, orderResponses, page, limit, totalFiltered)
 }
 
 func CreateOrder(c *gin.Context) {
-
 	authHeader := c.GetHeader("Authorization")
 
 	var request dto.CreateOrderRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
@@ -274,7 +267,7 @@ func CreateOrder(c *gin.Context) {
 		if err == nil {
 			currentUserID = userID
 		} else {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Token không hợp lệ"})
+			response.Unauthorized(c)
 			return
 		}
 	} else {
@@ -291,7 +284,7 @@ func CreateOrder(c *gin.Context) {
 					PhoneNumber: userInfo.PhoneNumber,
 				}
 			} else {
-				c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy người dùng"})
+				response.NotFound(c)
 				return
 			}
 		} else {
@@ -319,18 +312,18 @@ func CreateOrder(c *gin.Context) {
 
 	checkInDate, err := time.Parse("02/01/2006", request.CheckInDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày nhận phòng không hợp lệ"})
+		response.BadRequest(c, "Ngày nhận phòng không hợp lệ")
 		return
 	}
 
 	if checkInDate.Before(time.Now()) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày nhận phòng không được nhỏ hơn ngày hiện tại"})
+		response.BadRequest(c, "Ngày nhận phòng không được nhỏ hơn ngày hiện tại")
 		return
 	}
 
 	checkOutDate, err := time.Parse("02/01/2006", request.CheckOutDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng không hợp lệ"})
+		response.BadRequest(c, "Ngày trả phòng không hợp lệ")
 		return
 	}
 
@@ -348,7 +341,7 @@ func CreateOrder(c *gin.Context) {
 	}
 	numDays := int(checkOutDate.Sub(checkInDate).Hours() / 24)
 	if numDays <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày trả phòng phải sau ngày nhận phòng"})
+		response.BadRequest(c, "Ngày trả phòng phải sau ngày nhận phòng")
 		return
 	}
 
@@ -357,20 +350,20 @@ func CreateOrder(c *gin.Context) {
 
 	var accommodation models.Accommodation
 	if err := config.DB.First(&accommodation, request.AccommodationID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tìm thấy thông tin chỗ ở"})
+		response.ServerError(c)
 		return
 	}
 
 	if accommodation.Type == 0 && len(order.RoomID) > 0 {
 		var rooms []models.Room
 		if err := config.DB.Where("room_id IN ?", order.RoomID).Find(&rooms).Error; err != nil || len(rooms) != len(order.RoomID) {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tìm thấy phòng"})
+			response.ServerError(c)
 			return
 		}
 
 		for _, room := range rooms {
 			if room.AccommodationID != request.AccommodationID {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "AccommodationID không hợp lệ"})
+				response.BadRequest(c, "AccommodationID không hợp lệ")
 				return
 			}
 
@@ -379,12 +372,12 @@ func CreateOrder(c *gin.Context) {
 				room.RoomId, checkOutDate, checkInDate, checkOutDate, checkInDate).Find(&roomStatus).Error
 
 			if err != nil {
-				c.JSON(http.StatusCreated, gin.H{"code": 0, "mess": "Lỗi kiểm tra trạng thái phòng"})
+				response.ServerError(c)
 				return
 			}
 
 			if len(roomStatus) > 0 {
-				c.JSON(http.StatusCreated, gin.H{"code": 0, "mess": "Phòng đã được đặt hoặc không khả dụng trong khoảng thời gian này"})
+				response.BadRequest(c, "Phòng đã được đặt hoặc không khả dụng trong khoảng thời gian này")
 				return
 			}
 			price += room.Price * numDays
@@ -395,12 +388,12 @@ func CreateOrder(c *gin.Context) {
 		var accommodationStatus []models.AccommodationStatus
 		if err := config.DB.Where("accommodation_id = ? AND status = 1 AND ((from_date < ? AND to_date > ?) OR (from_date < ? AND to_date > ?))",
 			request.AccommodationID, checkOutDate, checkInDate, checkOutDate, checkInDate).Find(&accommodationStatus).Error; err != nil {
-			c.JSON(http.StatusCreated, gin.H{"code": 0, "mess": "Lỗi kiểm tra trạng thái chỗ ở"})
+			response.ServerError(c)
 			return
 		}
 
 		if len(accommodationStatus) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Chỗ ở đã được đặt hoặc không khả dụng trong khoảng thời gian này"})
+			response.BadRequest(c, "Chỗ ở đã được đặt hoặc không khả dụng trong khoảng thời gian này")
 			return
 		}
 
@@ -431,7 +424,7 @@ func CreateOrder(c *gin.Context) {
 
 	var holidays []models.Holiday
 	if err := config.DB.Find(&holidays).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy thông tin ngày lễ"})
+		response.ServerError(c)
 		return
 	}
 
@@ -439,13 +432,13 @@ func CreateOrder(c *gin.Context) {
 	for _, holiday := range holidays {
 		fromDate, err := time.Parse("02/01/2006", holiday.FromDate)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Ngày bắt đầu kỳ nghỉ không hợp lệ"})
+			response.ServerError(c)
 			return
 		}
 
 		toDate, err := time.Parse("02/01/2006", holiday.ToDate)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Ngày kết thúc kỳ nghỉ không hợp lệ"})
+			response.ServerError(c)
 			return
 		}
 
@@ -474,7 +467,7 @@ func CreateOrder(c *gin.Context) {
 	}
 
 	if err := config.DB.Create(&order).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo đơn", "detai": err})
+		response.ServerError(c)
 		return
 	}
 
@@ -485,7 +478,7 @@ func CreateOrder(c *gin.Context) {
 		}
 
 		if err := config.DB.Model(&order).Association("Room").Append(roomsToAppend); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể liên kết phòng với đơn hàng", "detail": err})
+			response.ServerError(c)
 			return
 		}
 
@@ -497,7 +490,7 @@ func CreateOrder(c *gin.Context) {
 				ToDate:   checkOutDate,
 			}
 			if err := config.DB.Create(&roomStatus).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái phòng", "detail": err})
+				response.ServerError(c)
 				return
 			}
 		}
@@ -509,13 +502,13 @@ func CreateOrder(c *gin.Context) {
 			ToDate:          checkOutDate,
 		}
 		if err := config.DB.Create(&roomStatus).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật trạng thái phòng", "detail": err})
+			response.ServerError(c)
 			return
 		}
 	}
 
 	if err := config.DB.Preload("User").Preload("Accommodation").Preload("Room").First(&order, order.ID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tải dữ liệu đơn hàng sau khi tạo"})
+		response.ServerError(c)
 		return
 	}
 
@@ -572,7 +565,7 @@ func CreateOrder(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo đơn thành công", "data": orderResponse})
+	response.Success(c, orderResponse)
 }
 
 func ChangeOrderStatus(c *gin.Context) {
@@ -584,7 +577,7 @@ func ChangeOrderStatus(c *gin.Context) {
 
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -592,13 +585,13 @@ func ChangeOrderStatus(c *gin.Context) {
 
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	var req StatusUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
@@ -606,7 +599,7 @@ func ChangeOrderStatus(c *gin.Context) {
 	if err := config.DB.
 		Preload("Accommodation.User").
 		First(&order, req.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Đơn hàng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -614,7 +607,7 @@ func ChangeOrderStatus(c *gin.Context) {
 
 	if currentUserRole == 0 && req.Status == 2 {
 		if timeSinceCreation > 24 {
-			c.JSON(http.StatusAccepted, gin.H{"code": 0, "mess": "Liên hệ Admin để được hủy đơn"})
+			response.BadRequest(c, "Liên hệ Admin để được hủy đơn")
 			return
 		}
 	}
@@ -625,11 +618,7 @@ func ChangeOrderStatus(c *gin.Context) {
 			if err := config.DB.Where("order_id = ?", order.ID).First(&invoice).Error; err == nil {
 				// Xóa invoice
 				if err := config.DB.Delete(&invoice).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"code": 0,
-						"mess": "Lỗi khi xóa hóa đơn",
-						"data": err.Error(),
-					})
+					response.ServerError(c)
 					return
 				}
 
@@ -647,29 +636,15 @@ func ChangeOrderStatus(c *gin.Context) {
 						"revenue":     newRevenue,
 						"order_count": newOrderCount,
 					}).Error; err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{
-							"code": 0,
-							"mess": "Lỗi khi cập nhật doanh thu người dùng sau xóa hóa đơn",
-							"data": err.Error(),
-						})
+						response.ServerError(c)
 						return
 					}
 				} else {
-
-					c.JSON(http.StatusNotFound, gin.H{
-						"code": 0,
-						"mess": "Không tìm thấy doanh thu người dùng trong ngày",
-						"data": nil,
-					})
+					response.NotFound(c)
 					return
 				}
 			} else {
-
-				c.JSON(http.StatusNotFound, gin.H{
-					"code": 0,
-					"mess": "Không tìm thấy invoice cho đơn hàng này",
-					"data": nil,
-				})
+				response.NotFound(c)
 				return
 			}
 		}
@@ -680,7 +655,7 @@ func ChangeOrderStatus(c *gin.Context) {
 				if err := config.DB.Where("room_id = ? AND status = ?", room.RoomId, 1).First(&roomStatus).Error; err == nil {
 					roomStatus.Status = 0
 					if err := config.DB.Save(&roomStatus).Error; err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái phòng"})
+						response.ServerError(c)
 						return
 					}
 				}
@@ -690,18 +665,17 @@ func ChangeOrderStatus(c *gin.Context) {
 			if err := config.DB.Where("accommodation_id = ? AND status = ?", order.AccommodationID, 1).First(&accommodationStatus).Error; err == nil {
 				accommodationStatus.Status = 0
 				if err := config.DB.Save(&accommodationStatus).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái accommodation"})
+					response.ServerError(c)
 					return
 				}
 			}
-
 		}
 	}
 
 	if req.Status == 1 {
 		var existingInvoice models.Invoice
 		if err := config.DB.Where("order_id = ?", order.ID).First(&existingInvoice).Error; err == nil {
-			c.JSON(http.StatusConflict, gin.H{"code": 0, "mess": "Hóa đơn đã tồn tại cho đơn hàng này"})
+			response.Conflict(c)
 			return
 		}
 
@@ -716,7 +690,7 @@ func ChangeOrderStatus(c *gin.Context) {
 		}
 
 		if err := config.DB.Create(&invoice).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo hóa đơn"})
+			response.ServerError(c)
 			return
 		}
 
@@ -733,11 +707,11 @@ func ChangeOrderStatus(c *gin.Context) {
 					OrderCount: 1,
 				}
 				if err := config.DB.Create(&newUserRevenue).Error; err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi tạo doanh thu người dùng"})
+					response.ServerError(c)
 					return
 				}
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi truy vấn doanh thu người dùng"})
+				response.ServerError(c)
 				return
 			}
 		} else {
@@ -746,7 +720,7 @@ func ChangeOrderStatus(c *gin.Context) {
 				"revenue":     userRevenue.Revenue + invoice.TotalAmount,
 				"order_count": userRevenue.OrderCount + 1,
 			}).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi cập nhật doanh thu người dùng"})
+				response.ServerError(c)
 				return
 			}
 		}
@@ -757,7 +731,7 @@ func ChangeOrderStatus(c *gin.Context) {
 	order.UpdatedAt = time.Now()
 
 	if err := config.DB.Save(&order).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể chuyển trạng thái đơn hàng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -779,7 +753,7 @@ func ChangeOrderStatus(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKeyUser)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Trạng thái đơn hàng đã được cập nhật"})
+	response.Success(c, gin.H{"message": "Trạng thái đơn hàng đã được cập nhật"})
 }
 
 func GetOrderDetail(c *gin.Context) {
@@ -791,8 +765,7 @@ func GetOrderDetail(c *gin.Context) {
 		Preload("Room").
 		Where("id = ?", orderId).
 		First(&order).Error; err != nil {
-
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "error": "Không tìm thấy Order"})
+		response.NotFound(c)
 		return
 	}
 	var user dto.ActorResponse
@@ -826,27 +799,26 @@ func GetOrderDetail(c *gin.Context) {
 		DiscountPrice:    order.DiscountPrice,
 		TotalPrice:       order.TotalPrice,
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 1, "data": orderResponse})
+	response.Success(c, orderResponse)
 }
 
 func GetOrdersByUserId(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
-	// Xử lý token
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, _, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "User not found"})
+		response.ServerError(c)
 		return
 	}
 
@@ -868,13 +840,13 @@ func GetOrdersByUserId(c *gin.Context) {
 	}
 
 	if user.PhoneNumber == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "User phone number is missing"})
+		response.BadRequest(c, "User phone number is missing")
 		return
 	}
 
 	var ordersToUpdate []models.Order
 	if err := config.DB.Where("guest_phone = ? AND user_id IS NULL", user.PhoneNumber).Find(&ordersToUpdate).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error finding guest orders"})
+		response.ServerError(c)
 		return
 	}
 
@@ -882,7 +854,7 @@ func GetOrdersByUserId(c *gin.Context) {
 		if order.GuestPhone == user.PhoneNumber {
 			order.UserID = &currentUserID
 			if err := config.DB.Save(&order).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error updating guest orders"})
+				response.ServerError(c)
 				return
 			}
 		}
@@ -890,7 +862,7 @@ func GetOrdersByUserId(c *gin.Context) {
 
 	var totalOrders int64
 	if err := config.DB.Model(&models.Order{}).Where("user_id = ?", currentUserID).Count(&totalOrders).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi đếm đơn đặt"})
+		response.ServerError(c)
 		return
 	}
 
@@ -905,11 +877,11 @@ func GetOrdersByUserId(c *gin.Context) {
 		Find(&orders)
 
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy thông tin đơn đặt!"})
+		response.ServerError(c)
 		return
 	}
 	if len(orders) == 0 {
-		c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Không có đơn đặt nào!", "data": []models.Order{}})
+		response.Success(c, []models.Order{})
 		return
 	}
 
@@ -958,10 +930,5 @@ func GetOrdersByUserId(c *gin.Context) {
 		orderResponses = append(orderResponses, orderResponse)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Orders fetched successfully", "data": orderResponses,
-		"page":  page,
-		"limit": limit,
-		"total": totalOrders,
-	})
-
+	response.SuccessWithPagination(c, orderResponses, page, limit, int(totalOrders))
 }
