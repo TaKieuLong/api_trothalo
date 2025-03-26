@@ -1,15 +1,17 @@
 package dto
 
+import "time"
+
 type WithdrawalHistoryResponse struct {
 	ID              uint          `json:"id"`
 	UserID          uint          `json:"userId"`
 	Amount          int64         `json:"amount"`
 	Status          int           `json:"status"`
-	CreatedAt       string        `json:"createdAt"`
-	UpdatedAt       string        `json:"updatedAt"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
 	User            *UserResponse `json:"user,omitempty"`
 	Bank            *Bank         `json:"bank,omitempty"`
-	Note            string        `json:"note"`
+	Reason          string        `json:"reason"`
 	TransactionCode string        `json:"transactionCode"`
 }
 
@@ -23,14 +25,14 @@ type WithdrawalHistoryListResponse struct {
 type CreateWithdrawalRequest struct {
 	Amount          int64  `json:"amount" binding:"required,min=1"`
 	BankID          uint   `json:"bankId" binding:"required"`
-	Note            string `json:"note"`
+	Reason          string `json:"reason"`
 	TransactionCode string `json:"transactionCode"`
 }
 
 type UpdateWithdrawalStatusRequest struct {
 	ID              uint   `json:"id" binding:"required"`
-	Status          int    `json:"status" binding:"required,min=0,max=2"`
-	Note            string `json:"note"`
+	Status          string `json:"status" binding:"required,min=0,max=2"`
+	Reason          string `json:"reason"`
 	TransactionCode string `json:"transactionCode"`
 }
 
