@@ -58,37 +58,6 @@ func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) 
 }
 
 func GetAllBenefit(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
-	currentUserRole := 0
-	if authHeader != "" {
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		_, role, err := GetUserIDFromToken(tokenString)
-		if err != nil {
-			response.Unauthorized(c)
-			return
-		}
-		currentUserRole = role
-	}
-
-	statusFilter := c.Query("status")
-	nameFilter := c.Query("name")
-	pageStr := c.Query("page")
-	limitStr := c.Query("limit")
-
-	page := 0
-	limit := 10
-
-	if pageStr != "" {
-		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage >= 0 {
-			page = parsedPage
-		}
-	}
-
-	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
-		}
-	}
 
 	// Redis cache key
 	cacheKey := "benefits:all"
@@ -113,37 +82,11 @@ func GetAllBenefit(c *gin.Context) {
 		}
 	}
 
-	var filteredBenefits []dto.BenefitResponse
-
-	//filter role = 1,2,3 cho sidebar cms, còn lại filter cho web user
-	if currentUserRole != 0 {
-		filteredBenefits = filterBenefits(allBenefits, statusFilter, nameFilter)
-	} else {
-		filteredBenefits = filterBenefitsByStatus(allBenefits, 0)
-	}
-
 	// Pagination
-	total := len(filteredBenefits)
-	if currentUserRole == 0 {
-		// Nếu userRole là 0, không áp dụng phân trang, trả về tất cả dữ liệu
-		response.Success(c, filteredBenefits)
-		return
-	}
-
-	//Các user khác phân trang
-	start := page * limit
-	end := start + limit
-
-	if start >= total {
-		filteredBenefits = []dto.BenefitResponse{}
-	} else if end > total {
-		filteredBenefits = filteredBenefits[start:]
-	} else {
-		filteredBenefits = filteredBenefits[start:end]
-	}
+	total := len(allBenefits)
 
 	// Trả về kết quả với phân trang
-	response.SuccessWithPagination(c, filteredBenefits, page, limit, total)
+	response.SuccessWithTotal(c, allBenefits, total)
 }
 
 func CreateBenefit(c *gin.Context) {
