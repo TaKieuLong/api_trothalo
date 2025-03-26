@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"os"
 	"regexp"
@@ -27,113 +29,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ScoredAccommodation struct {
-	Accommodation models.Accommodation `json:"accommodation"`
-	Score         int                  `json:"score"`
-}
-
-type AccommodationRequest struct {
-	ID               uint             `json:"id"`
-	Type             int              `json:"type"`
-	Name             string           `json:"name"`
-	Address          string           `json:"address"`
-	Avatar           string           `json:"avatar"`
-	Img              json.RawMessage  `json:"img" gorm:"type:json"`
-	ShortDescription string           `json:"shortDescription"`
-	Description      string           `json:"description"`
-	Status           int              `json:"status"`
-	Num              int              `json:"num"`
-	Furniture        json.RawMessage  `json:"furniture" gorm:"type:json"`
-	Benefits         []models.Benefit `json:"benefits" gorm:"many2many:accommodation_benefits;"`
-	People           int              `json:"people"`
-	Price            int              `json:"price"`
-	TimeCheckOut     string           `json:"timeCheckOut"`
-	TimeCheckIn      string           `json:"timeCheckIn"`
-	Province         string           `json:"province"`
-	District         string           `json:"district"`
-	Ward             string           `json:"ward"`
-	Longitude        float64          `json:"longitude"`
-	Latitude         float64          `json:"latitude"`
-}
-
-type Actor struct {
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	PhoneNumber   string `json:"phoneNumber"`
-	BankName      string `json:"bankName"`
-	AccountNumber string `json:"accountNumber"`
-	BankShortName string `json:"bankShortName"`
-}
-
-type AccommodationResponse struct {
-	ID               uint   `json:"id"`
-	Type             int    `json:"type"`
-	Province         string `json:"province"`
-	Name             string `json:"name"`
-	Address          string `json:"address"`
-	CreateAt         time.Time
-	UpdateAt         time.Time
-	Avatar           string           `json:"avatar"`
-	ShortDescription string           `json:"shortDescription"`
-	Status           int              `json:"status"`
-	Num              int              `json:"num"`
-	People           int              `json:"people"`
-	Price            int              `json:"price"`
-	NumBed           int              `json:"numBed"`
-	NumTolet         int              `json:"numTolet"`
-	District         string           `json:"district"`
-	Ward             string           `json:"ward"`
-	Longitude        float64          `json:"longitude"`
-	Latitude         float64          `json:"latitude"`
-	Benefits         []models.Benefit `json:"benefits"`
-}
-
-type AccommodationResponseTest struct {
-	ID       uint             `json:"id"`
-	Type     int              `json:"type"`
-	Province string           `json:"province"`
-	Name     string           `json:"name"`
-	Status   int              `json:"status"`
-	Num      int              `json:"num"`
-	People   int              `json:"people"`
-	Price    int              `json:"price"`
-	NumBed   int              `json:"numBed"`
-	NumTolet int              `json:"numTolet"`
-	District string           `json:"district"`
-	Ward     string           `json:"ward"`
-	Benefits []models.Benefit `json:"benefits"`
-}
-
-type AccommodationDetailResponse struct {
-	ID               uint   `json:"id"`
-	Type             int    `json:"type"`
-	Province         string `json:"province"`
-	District         string `json:"district"`
-	Ward             string `json:"ward"`
-	Name             string `json:"name"`
-	Address          string `json:"address"`
-	CreateAt         time.Time
-	UpdateAt         time.Time
-	Avatar           string           `json:"avatar"`
-	ShortDescription string           `json:"shortDescription"`
-	Description      string           `json:"description"`
-	Status           int              `json:"status"`
-	User             Actor            `json:"user"`
-	Num              int              `json:"num"`
-	People           int              `json:"people"`
-	Price            int              `json:"price"`
-	NumBed           int              `json:"numBed"`
-	NumTolet         int              `json:"numTolet"`
-	Furniture        json.RawMessage  `json:"furniture" gorm:"type:json"`
-	Img              json.RawMessage  `json:"img"`
-	Benefits         []models.Benefit `json:"benefits"`
-	Rates            []RateResponse   `json:"rates"`
-	TimeCheckOut     string           `json:"timeCheckOut"`
-	TimeCheckIn      string           `json:"timeCheckIn"`
-	Longitude        float64          `json:"longitude"`
-	Latitude         float64          `json:"latitude"`
-}
-
 func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]models.AccommodationStatus, error) {
 	var statuses []models.AccommodationStatus
 
@@ -143,7 +38,7 @@ func getAllAccommodationStatuses(c *gin.Context, fromDate, toDate time.Time) ([]
 	// Kết nối Redis
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 		return nil, fmt.Errorf("không thể kết nối Redis: %v", err)
 	}
 
@@ -192,14 +87,14 @@ func GetAccBookingDates(c *gin.Context) {
 	date := c.DefaultQuery("date", "")
 
 	if accommodationID == "" || date == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id và date là bắt buộc"})
+		response.BadRequest(c, "id và date là bắt buộc")
 		return
 	}
 
 	layout := "01/2006"
 	parsedDate, err := time.Parse(layout, date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy"})
+		response.BadRequest(c, "Ngày không hợp lệ, vui lòng sử dụng định dạng mm/yyyy")
 		return
 	}
 
@@ -217,7 +112,7 @@ func GetAccBookingDates(c *gin.Context) {
 	err = db.Where("accommodation_id = ?", accommodationID).Find(&statuses).Error
 	if err != nil {
 		log.Printf("Error retrieving accommodation statuses: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy thông tin trạng thái phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -225,7 +120,7 @@ func GetAccBookingDates(c *gin.Context) {
 	orderMap, err := getGuestBookings(accommodationID)
 	if err != nil {
 		log.Printf("Error retrieving guest bookings: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi lấy danh sách đặt phòng"})
+		response.ServerError(c)
 		return
 	}
 
@@ -262,11 +157,7 @@ func GetAccBookingDates(c *gin.Context) {
 		roomResponses = append(roomResponses, roomResponse)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách phòng thành công",
-		"data": roomResponses,
-	})
+	response.Success(c, roomResponses)
 }
 
 // getGuestBookings lấy thông tin khách đặt phòng theo accommodation_id cho API GetAccBookingDates
@@ -390,20 +281,10 @@ func GetAllAccommodations(c *gin.Context) {
 			return
 		}
 
-		accommodationsResponse := make([]AccommodationDetailResponse, 0)
+		accommodationsResponse := make([]dto.AccommodationResponse, 0)
 		for _, acc := range allAccommodations {
-			user := acc.User
-			// Lấy thông tin ngân hàng nếu có
-			bankShortName := ""
-			accountNumber := ""
-			bankName := ""
-			if len(user.Banks) > 0 {
-				bankShortName = user.Banks[0].BankShortName
-				accountNumber = user.Banks[0].AccountNumber
-				bankName = user.Banks[0].BankName
-			}
 
-			accommodationsResponse = append(accommodationsResponse, AccommodationDetailResponse{
+			accommodationsResponse = append(accommodationsResponse, dto.AccommodationResponse{
 				ID:               acc.ID,
 				Type:             acc.Type,
 				Name:             acc.Name,
@@ -414,27 +295,16 @@ func GetAllAccommodations(c *gin.Context) {
 				ShortDescription: acc.ShortDescription,
 				Status:           acc.Status,
 				Num:              acc.Num,
-				Furniture:        acc.Furniture,
 				People:           acc.People,
 				Price:            acc.Price,
 				NumBed:           acc.NumBed,
 				NumTolet:         acc.NumTolet,
-				Benefits:         acc.Benefits,
-				TimeCheckIn:      acc.TimeCheckIn,
-				TimeCheckOut:     acc.TimeCheckOut,
 				Province:         acc.Province,
 				District:         acc.District,
 				Ward:             acc.Ward,
+				Benefits:         acc.Benefits,
 				Longitude:        acc.Longitude,
 				Latitude:         acc.Latitude,
-				User: Actor{
-					Name:          user.Name,
-					Email:         user.Email,
-					PhoneNumber:   user.PhoneNumber,
-					BankShortName: bankShortName,
-					AccountNumber: accountNumber,
-					BankName:      bankName,
-				},
 			})
 		}
 
@@ -531,9 +401,9 @@ func GetAllAccommodations(c *gin.Context) {
 	}
 
 	// Chuẩn bị response
-	accommodationsResponse := make([]AccommodationResponse, 0)
+	accommodationsResponse := make([]dto.AccommodationResponse, 0)
 	for _, acc := range filteredAccommodations {
-		accommodationsResponse = append(accommodationsResponse, AccommodationResponse{
+		accommodationsResponse = append(accommodationsResponse, dto.AccommodationResponse{
 			ID:               acc.ID,
 			Type:             acc.Type,
 			Name:             acc.Name,
@@ -551,21 +421,13 @@ func GetAllAccommodations(c *gin.Context) {
 			Province:         acc.Province,
 			District:         acc.District,
 			Ward:             acc.Ward,
+			Benefits:         acc.Benefits,
 			Longitude:        acc.Longitude,
 			Latitude:         acc.Latitude,
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách chỗ ở thành công",
-		"data": accommodationsResponse,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	response.SuccessWithPagination(c, accommodationsResponse, page, limit, total)
 }
 
 // Hàm chuẩn hóa chuỗi
@@ -726,9 +588,9 @@ func filterAndScoreAccommodations(
 	query string,
 	accommodations []models.Accommodation,
 	cmProvince, cmWard *closestmatch.ClosestMatch,
-) []ScoredAccommodation {
-	var filteredAccommodations []ScoredAccommodation
-	scoreCh := make(chan ScoredAccommodation, len(accommodations))
+) []dto.ScoredAccommodation {
+	var filteredAccommodations []dto.ScoredAccommodation
+	scoreCh := make(chan dto.ScoredAccommodation, len(accommodations))
 	var wg sync.WaitGroup
 
 	for _, acc := range accommodations {
@@ -737,7 +599,7 @@ func filterAndScoreAccommodations(
 			defer wg.Done()
 			score := calculateScore(query, acc, cmProvince, cmWard)
 			if score > 0 {
-				scoreCh <- ScoredAccommodation{
+				scoreCh <- dto.ScoredAccommodation{
 					Accommodation: acc,
 					Score:         score,
 				}
@@ -961,11 +823,11 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 		}
 
 		// Ép kiểu sang AccommodationResponse
-		accommodationsResponse := make([]AccommodationDetailResponse, 0)
+		accommodationsResponse := make([]dto.AccommodationDetailResponse, 0)
 		for _, acc := range allAccommodations {
 			// Lấy thông tin User
 			user := acc.User
-			accommodationsResponse = append(accommodationsResponse, AccommodationDetailResponse{
+			accommodationsResponse = append(accommodationsResponse, dto.AccommodationDetailResponse{
 				ID:               acc.ID,
 				Type:             acc.Type,
 				Name:             acc.Name,
@@ -989,7 +851,7 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 				Ward:             acc.Ward,
 				Longitude:        acc.Longitude,
 				Latitude:         acc.Latitude,
-				User: Actor{
+				User: dto.Actor{
 					Name:          user.Name,
 					Email:         user.Email,
 					PhoneNumber:   user.PhoneNumber,
@@ -1072,9 +934,9 @@ func GetAllAccommodationsForUser(c *gin.Context) {
 	}
 
 	// Chuẩn bị response
-	accommodationsResponse := make([]AccommodationResponse, 0)
+	accommodationsResponse := make([]dto.AccommodationResponse, 0)
 	for _, acc := range filteredAccommodations {
-		accommodationsResponse = append(accommodationsResponse, AccommodationResponse{
+		accommodationsResponse = append(accommodationsResponse, dto.AccommodationResponse{
 			ID:               acc.ID,
 			Type:             acc.Type,
 			Name:             acc.Name,
@@ -1242,7 +1104,7 @@ func CreateAccommodation(c *gin.Context) {
 			}
 		}
 	}
-	response := AccommodationDetailResponse{
+	response := dto.AccommodationDetailResponse{
 		ID:               newAccommodation.ID,
 		Type:             newAccommodation.Type,
 		Name:             newAccommodation.Name,
@@ -1266,8 +1128,7 @@ func CreateAccommodation(c *gin.Context) {
 		Ward:             newAccommodation.Ward,
 		Longitude:        newAccommodation.Longitude,
 		Latitude:         newAccommodation.Latitude,
-
-		User: Actor{
+		User: dto.Actor{
 			Name:        user.Name,
 			Email:       user.Email,
 			PhoneNumber: user.PhoneNumber,
@@ -1283,7 +1144,7 @@ func GetAccommodationDetail(c *gin.Context) {
 	// Kết nối Redis
 	rdb, redisErr := config.ConnectRedis()
 	if redisErr != nil {
-		c.JSON(http.StatusTemporaryRedirect, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 		return
 	}
 
@@ -1302,7 +1163,7 @@ func GetAccommodationDetail(c *gin.Context) {
 					price = acc.Price
 				}
 				// Tạo response từ cache
-				response := AccommodationDetailResponse{
+				resp := dto.AccommodationDetailResponse{
 					ID:               acc.ID,
 					Type:             acc.Type,
 					Name:             acc.Name,
@@ -1328,17 +1189,13 @@ func GetAccommodationDetail(c *gin.Context) {
 					Ward:             acc.Ward,
 					Longitude:        acc.Longitude,
 					Latitude:         acc.Latitude,
-					User: Actor{
+					User: dto.Actor{
 						Name:        acc.User.Name,
 						Email:       acc.User.Email,
 						PhoneNumber: acc.User.PhoneNumber,
 					},
 				}
-				c.JSON(http.StatusOK, gin.H{
-					"code": 1,
-					"mess": "Lấy thông tin chỗ ở thành công (từ cache)",
-					"data": response,
-				})
+				response.Success(c, resp)
 				return
 			}
 		}
@@ -1350,7 +1207,7 @@ func GetAccommodationDetail(c *gin.Context) {
 		Preload("Rates").
 		Preload("Benefits").
 		Preload("User").Preload("User.Banks").First(&accommodation, accommodationId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chỗ ở không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -1367,7 +1224,7 @@ func GetAccommodationDetail(c *gin.Context) {
 
 		price = accommodation.Price
 	}
-	response := AccommodationDetailResponse{
+	resp := dto.AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
 		Name:             accommodation.Name,
@@ -1393,57 +1250,53 @@ func GetAccommodationDetail(c *gin.Context) {
 		Ward:             accommodation.Ward,
 		Longitude:        accommodation.Longitude,
 		Latitude:         accommodation.Latitude,
-		User: Actor{
+		User: dto.Actor{
 			Name:        accommodation.User.Name,
 			Email:       accommodation.User.Email,
 			PhoneNumber: accommodation.User.PhoneNumber,
 		},
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy thông tin chỗ ở thành công",
-		"data": response,
-	})
+	response.Success(c, resp)
 }
 
 func UpdateAccommodation(c *gin.Context) {
-	var request AccommodationRequest
+	var request dto.AccommodationRequest
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ", "details": err.Error()})
+		response.BadRequest(c, "Dữ liệu đầu vào không hợp lệ")
 		return
 	}
 
 	var accommodation models.Accommodation
 
 	if err := config.DB.Preload("User").Preload("Rooms").Preload("Rates").First(&accommodation, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chỗ ở không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	// Xử lý trường Img
 	imgJSON, err := json.Marshal(request.Img)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa hình ảnh", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
 	// Xử lý trường Furniture
 	furnitureJson, err := json.Marshal(request.Furniture)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể mã hóa nội thất", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 	latitude, longitude, err := services.GetCoordinatesFromAddress(
@@ -1454,7 +1307,7 @@ func UpdateAccommodation(c *gin.Context) {
 		os.Getenv("MAPBOX_KEY"),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể mã hóa địa chỉ", "details": err.Error()})
+		response.ServerError(c)
 	}
 	if request.Type != -1 {
 		accommodation.Type = request.Type
@@ -1530,7 +1383,7 @@ func UpdateAccommodation(c *gin.Context) {
 
 			newBenefit := models.Benefit{Name: benefit.Name}
 			if err := config.DB.Where("name = ?", benefit.Name).FirstOrCreate(&newBenefit).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "message": "Không thể tạo mới tiện ích", "details": err.Error()})
+				response.ServerError(c)
 				return
 			}
 			benefits = append(benefits, newBenefit)
@@ -1538,12 +1391,12 @@ func UpdateAccommodation(c *gin.Context) {
 	}
 
 	if err := config.DB.Model(&accommodation).Association("Benefits").Replace(benefits); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật tiện ích", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
 	if err := config.DB.Save(&accommodation).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật chỗ ở", "details": err.Error()})
+		response.ServerError(c)
 		return
 	}
 	// Xử lý Redis cache
@@ -1579,7 +1432,7 @@ func UpdateAccommodation(c *gin.Context) {
 
 		}
 	}
-	response := AccommodationDetailResponse{
+	resp := dto.AccommodationDetailResponse{
 		ID:               accommodation.ID,
 		Type:             accommodation.Type,
 		Name:             accommodation.Name,
@@ -1603,20 +1456,20 @@ func UpdateAccommodation(c *gin.Context) {
 		Latitude:         accommodation.Latitude,
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật chỗ ở thành công", "data": response})
+	response.Success(c, resp)
 }
 
 func ChangeAccommodationStatus(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -1626,20 +1479,20 @@ func ChangeAccommodationStatus(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu đầu vào không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu đầu vào không hợp lệ")
 		return
 	}
 
 	var accommodation models.Accommodation
 
 	if err := config.DB.First(&accommodation, input.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chỗ ở không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	accommodation.Status = input.Status
 	if err := config.DB.Save(&accommodation).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể thay đổi trạng thái chỗ ở"})
+		response.ServerError(c)
 		return
 	}
 	// Xử lý Redis cache
@@ -1669,7 +1522,7 @@ func ChangeAccommodationStatus(c *gin.Context) {
 			}
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái chỗ ở thành công", "data": accommodation})
+	response.Success(c, accommodation)
 }
 
 // Hàm lấy giá thấp nhất từ danh sách phòng

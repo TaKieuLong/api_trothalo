@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/services"
 	"sort"
 	"strconv"
@@ -112,7 +113,7 @@ func GetUserAcc(c *gin.Context) {
 		return
 	}
 
-	accUser := make([]AccommodationDetailResponse, 0)
+	accUser := make([]dto.AccommodationDetailResponse, 0)
 	for _, acc := range allAccommodations {
 		user := acc.User
 		// Lấy thông tin ngân hàng nếu có
@@ -125,7 +126,7 @@ func GetUserAcc(c *gin.Context) {
 			bankName = user.Banks[0].BankName
 		}
 
-		accUser = append(accUser, AccommodationDetailResponse{
+		accUser = append(accUser, dto.AccommodationDetailResponse{
 			ID:               acc.ID,
 			Type:             acc.Type,
 			Name:             acc.Name,
@@ -149,7 +150,7 @@ func GetUserAcc(c *gin.Context) {
 			Ward:             acc.Ward,
 			Longitude:        acc.Longitude,
 			Latitude:         acc.Latitude,
-			User: Actor{
+			User: dto.Actor{
 				Name:          user.Name,
 				Email:         user.Email,
 				PhoneNumber:   user.PhoneNumber,

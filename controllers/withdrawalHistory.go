@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"new/config"
+	"new/dto"
 	"new/models"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ type WithdrawalHistoryResponse struct {
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
-	User      Actor     `json:"user"`
+	User      dto.Actor `json:"user"`
 	Reason    string    `json:"reason"`
 }
 
@@ -146,7 +147,7 @@ func GetWithdrawalHistory(c *gin.Context) {
 			CreatedAt: w.CreatedAt,
 			UpdatedAt: w.UpdatedAt,
 			Reason:    w.Reason,
-			User: Actor{
+			User: dto.Actor{
 				Name:        w.User.Name,
 				Email:       w.User.Email,
 				PhoneNumber: w.User.PhoneNumber,
