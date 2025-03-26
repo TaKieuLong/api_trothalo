@@ -2,10 +2,11 @@ package controllers
 
 import (
 	"log"
-	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"strconv"
 	"strings"
@@ -14,31 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UpdateBenefitRequest struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
-}
-
-type CreateBenefitRequest struct {
-	Name string `json:"name" binding:"required"`
-}
-
-type ChangeBenefitStatusRequest struct {
-	ID     uint `json:"id"`
-	Status int  `json:"status"`
-}
-
-type BenefitResponse struct {
-	Id   int    `json:"id"`
-	Name string `json:"name"`
-}
-
 // Lọc benefit theo status
-func filterBenefitsByStatus(benefits []models.Benefit, status int) []BenefitResponse {
-	var filtered []BenefitResponse
+func filterBenefitsByStatus(benefits []models.Benefit, status int) []dto.BenefitResponse {
+	var filtered []dto.BenefitResponse
 	for _, b := range benefits {
 		if b.Status == status {
-			filtered = append(filtered, BenefitResponse{
+			filtered = append(filtered, dto.BenefitResponse{
 				Id:   b.Id,
 				Name: b.Name,
 			})
@@ -48,8 +30,8 @@ func filterBenefitsByStatus(benefits []models.Benefit, status int) []BenefitResp
 }
 
 // Lọc Benefit cho cms
-func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) []BenefitResponse {
-	var filtered []BenefitResponse
+func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) []dto.BenefitResponse {
+	var filtered []dto.BenefitResponse
 	for _, b := range benefits {
 		// Filter theo status
 		if statusFilter != "" {
@@ -67,7 +49,7 @@ func filterBenefits(benefits []models.Benefit, statusFilter, nameFilter string) 
 			}
 		}
 
-		filtered = append(filtered, BenefitResponse{
+		filtered = append(filtered, dto.BenefitResponse{
 			Id:   b.Id,
 			Name: b.Name,
 		})
@@ -82,7 +64,7 @@ func GetAllBenefit(c *gin.Context) {
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		_, role, err := GetUserIDFromToken(tokenString)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+			response.Unauthorized(c)
 			return
 		}
 		currentUserRole = role
@@ -112,16 +94,16 @@ func GetAllBenefit(c *gin.Context) {
 	cacheKey := "benefits:all"
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusMovedPermanently, gin.H{"code": 0, "mess": "Không thể kết nối Redis", "error": err.Error()})
+		response.ServerError(c)
+		return
 	}
 
 	var allBenefits []models.Benefit
 
 	err = services.GetFromRedis(config.Ctx, rdb, cacheKey, &allBenefits)
 	if err != nil || len(allBenefits) == 0 {
-
 		if err := config.DB.Find(&allBenefits).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách lợi ích", "error": err.Error()})
+			response.ServerError(c)
 			return
 		}
 
@@ -131,7 +113,7 @@ func GetAllBenefit(c *gin.Context) {
 		}
 	}
 
-	var filteredBenefits []BenefitResponse
+	var filteredBenefits []dto.BenefitResponse
 
 	//filter role = 1,2,3 cho sidebar cms, còn lại filter cho web user
 	if currentUserRole != 0 {
@@ -144,12 +126,7 @@ func GetAllBenefit(c *gin.Context) {
 	total := len(filteredBenefits)
 	if currentUserRole == 0 {
 		// Nếu userRole là 0, không áp dụng phân trang, trả về tất cả dữ liệu
-		c.JSON(http.StatusOK, gin.H{
-			"code":  1,
-			"mess":  "Lấy danh sách tiện ích thành công",
-			"data":  filteredBenefits,
-			"total": total,
-		})
+		response.Success(c, filteredBenefits)
 		return
 	}
 
@@ -158,31 +135,22 @@ func GetAllBenefit(c *gin.Context) {
 	end := start + limit
 
 	if start >= total {
-		filteredBenefits = []BenefitResponse{}
+		filteredBenefits = []dto.BenefitResponse{}
 	} else if end > total {
 		filteredBenefits = filteredBenefits[start:]
 	} else {
 		filteredBenefits = filteredBenefits[start:end]
 	}
 
-	// Trả về kết quả
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách tiện ích thành công",
-		"data": filteredBenefits,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	// Trả về kết quả với phân trang
+	response.SuccessWithPagination(c, filteredBenefits, page, limit, total)
 }
 
 func CreateBenefit(c *gin.Context) {
-	var benefitRequests []CreateBenefitRequest
+	var benefitRequests []dto.CreateBenefitRequest
 
 	if err := c.ShouldBindJSON(&benefitRequests); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
@@ -191,7 +159,7 @@ func CreateBenefit(c *gin.Context) {
 		benefit = append(benefit, models.Benefit{Name: benefitRequest.Name})
 	}
 	if err := config.DB.Create(&benefit).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo lợi ích", "error": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -202,47 +170,43 @@ func CreateBenefit(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Tạo lợi ích thành công", "data": benefit})
+	response.Success(c, benefit)
 }
 
 func GetBenefitDetail(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "ID không hợp lệ", "error": err.Error()})
+		response.BadRequest(c, "ID không hợp lệ")
 		return
 	}
 
 	var benefit models.Benefit
 	if err := config.DB.First(&benefit, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy lợi ích", "error": err.Error()})
+		response.NotFound(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy thông tin lợi ích thành công",
-		"data": benefit,
-	})
+	response.Success(c, benefit)
 }
 
 func UpdateBenefit(c *gin.Context) {
-	var request UpdateBenefitRequest
+	var request dto.UpdateBenefitRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var benefit models.Benefit
 	if err := config.DB.First(&benefit, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy lợi ích", "error": err.Error()})
+		response.NotFound(c)
 		return
 	}
 
 	benefit.Name = request.Name
 
 	if err := config.DB.Save(&benefit).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật lợi ích", "error": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -253,32 +217,32 @@ func UpdateBenefit(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật lợi ích thành công", "data": benefit})
+	response.Success(c, benefit)
 }
 
 func ChangeBenefitStatus(c *gin.Context) {
-	var request ChangeBenefitStatusRequest
+	var request dto.ChangeBenefitStatusRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var benefit models.Benefit
 	if err := config.DB.First(&benefit, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy lợi ích", "error": err.Error()})
+		response.NotFound(c)
 		return
 	}
 
 	benefit.Status = request.Status
 
 	if err := benefit.ValidateStatus(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	if err := config.DB.Model(&benefit).Update("status", request.Status).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể thay đổi trạng thái lợi ích", "error": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -291,5 +255,5 @@ func ChangeBenefitStatus(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái lợi ích thành công", "data": benefit})
+	response.Success(c, benefit)
 }

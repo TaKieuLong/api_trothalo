@@ -34,7 +34,6 @@ type UpdateDiscountRequest struct {
 	FromDate    string `json:"fromDate"`
 	ToDate      string `json:"toDate"`
 	Discount    int    `json:"discount"`
-	Status      int    `json:"status"`
 }
 
 // ChangeDiscountStatusRequest là DTO cho yêu cầu thay đổi trạng thái discount

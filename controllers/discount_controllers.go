@@ -1,53 +1,17 @@
 package controllers
 
 import (
-	"net/http"
 	"net/url"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
-
-type DiscountResponse struct {
-	ID        uint      `json:"id"`
-	Name      string    `json:"name"`
-	Quantity  int       `json:"quantity"`
-	FromDate  string    `json:"fromDate"`
-	ToDate    string    `json:"toDate"`
-	Discount  int       `json:"discount"`
-	Status    int       `json:"status"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
-
-type CreateDiscountRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description" binding:"required"`
-	Quantity    int    `json:"quantity" binding:"required"`
-	FromDate    string `json:"fromDate" binding:"required"`
-	ToDate      string `json:"toDate" binding:"required"`
-	Discount    int    `json:"discount" binding:"required"`
-}
-
-type UpdateDiscountRequest struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Quantity    int    `json:"quantity"`
-	FromDate    string `json:"fromDate"`
-	ToDate      string `json:"toDate"`
-	Discount    int    `json:"discount"`
-	Status      int    `json:"status"`
-}
-
-type ChangeDiscountStatusRequest struct {
-	ID     uint `json:"id"`
-	Status int  `json:"status"`
-}
 
 var layout = "02/01/2006"
 
@@ -60,11 +24,10 @@ func ConvertDateToComparableFormat(dateStr string) (string, error) {
 }
 
 func GetDiscounts(c *gin.Context) {
-
 	var discounts []models.Discount
 
 	if err := config.DB.Find(&discounts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách chương trình giảm giá"})
+		response.ServerError(c)
 		return
 	}
 
@@ -91,13 +54,13 @@ func GetDiscounts(c *gin.Context) {
 		}
 	}
 
-	var discountResponses []DiscountResponse
+	var discountResponses []dto.DiscountResponse
 
 	tx := config.DB.Model(&models.Discount{})
 	if nameFilter != "" {
 		decodedNameFilter, err := url.QueryUnescape(nameFilter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể giải mã tham số name"})
+			response.ServerError(c)
 			return
 		}
 		tx = tx.Where("name ILIKE ?", "%"+decodedNameFilter+"%")
@@ -120,14 +83,14 @@ func GetDiscounts(c *gin.Context) {
 	if fromDateStr != "" {
 		fromDateComparable, err := ConvertDateToComparableFormat(fromDateStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng fromDate"})
+			response.BadRequest(c, "Sai định dạng fromDate")
 			return
 		}
 
 		if toDateStr != "" {
 			toDateComparable, err := ConvertDateToComparableFormat(toDateStr)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Sai định dạng toDate"})
+				response.BadRequest(c, "Sai định dạng toDate")
 				return
 			}
 			tx = tx.Where("SUBSTRING(from_date, 7, 4) || SUBSTRING(from_date, 4, 2) || SUBSTRING(from_date, 1, 2) >= ? AND SUBSTRING(to_date, 7, 4) || SUBSTRING(to_date, 4, 2) || SUBSTRING(to_date, 1, 2) <= ?", fromDateComparable, toDateComparable)
@@ -138,17 +101,17 @@ func GetDiscounts(c *gin.Context) {
 
 	var totalDiscounts int64
 	if err := tx.Count(&totalDiscounts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể đếm số lượng mã giảm giá"})
+		response.ServerError(c)
 		return
 	}
 	tx = tx.Order("updated_at desc")
 
 	if err := tx.Offset(page * limit).Limit(limit).Find(&discounts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách mã giảm giá"})
+		response.ServerError(c)
 		return
 	}
 	for _, discount := range discounts {
-		discountResponses = append(discountResponses, DiscountResponse{
+		discountResponses = append(discountResponses, dto.DiscountResponse{
 			ID:        discount.ID,
 			Name:      discount.Name,
 			Quantity:  discount.Quantity,
@@ -161,48 +124,45 @@ func GetDiscounts(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy danh sách chương trình giảm giá thành công", "data": discountResponses,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": totalDiscounts,
-		}})
+	response.SuccessWithPagination(c, discountResponses, page, limit, int(totalDiscounts))
 }
+
 func GetDiscountDetail(c *gin.Context) {
 	var discount models.Discount
 	discountId := c.Param("id")
 	if err := config.DB.Where("id = ?", discountId).First(&discount).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy mã giảm giá!"})
+		response.NotFound(c)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy thông tin chi tiết của mã giảm giá thành công", "data": discount})
+	response.Success(c, discount)
 }
+
 func CreateDiscount(c *gin.Context) {
-	var request CreateDiscountRequest
+	var request dto.CreateDiscountRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	if request.Discount < 0 || request.Discount > 100 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Mức giảm giá phải nằm trong khoảng từ 0 đến 100"})
+		response.BadRequest(c, "Mức giảm giá phải nằm trong khoảng từ 0 đến 100")
 		return
 	}
 
 	fromDate, err := time.Parse(layout, request.FromDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng ngày bắt đầu không hợp lệ"})
+		response.BadRequest(c, "Định dạng ngày bắt đầu không hợp lệ")
 		return
 	}
 	toDate, err := time.Parse(layout, request.ToDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng ngày kết thúc không hợp lệ"})
+		response.BadRequest(c, "Định dạng ngày kết thúc không hợp lệ")
 		return
 	}
 
 	if !toDate.After(fromDate) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Ngày kết thúc phải sau ngày bắt đầu"})
+		response.BadRequest(c, "Ngày kết thúc phải sau ngày bắt đầu")
 		return
 	}
 	discount := models.Discount{
@@ -217,23 +177,23 @@ func CreateDiscount(c *gin.Context) {
 	}
 
 	if err := config.DB.Create(&discount).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể tạo chương trình giảm giá", "detail": err})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"code": 1, "mess": "Tạo chương trình giảm giá thành công", "data": discount})
+	response.Success(c, discount)
 }
 
 func UpdateDiscount(c *gin.Context) {
-	var request UpdateDiscountRequest
+	var request dto.UpdateDiscountRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var discount models.Discount
 	if err := config.DB.First(&discount, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Chương trình giảm giá không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -256,10 +216,9 @@ func UpdateDiscount(c *gin.Context) {
 		discount.Discount = request.Discount
 	}
 	discount.UpdatedAt = time.Now()
-	discount.Status = request.Status
 
 	if err := config.DB.Save(&discount).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật chương trình giảm giá"})
+		response.ServerError(c)
 		return
 	}
 
@@ -270,13 +229,13 @@ func UpdateDiscount(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Cập nhật chương trình giảm giá thành công", "data": discount})
+	response.Success(c, discount)
 }
 
 func DeleteDiscount(c *gin.Context) {
 	id := c.Param("id")
 	if err := config.DB.Delete(&models.Discount{}, id).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể xóa chương trình giảm giá"})
+		response.ServerError(c)
 		return
 	}
 
@@ -287,32 +246,32 @@ func DeleteDiscount(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Xóa chương trình giảm giá thành công"})
+	response.Success(c, nil)
 }
 
 func ChangeDiscountStatus(c *gin.Context) {
-	var request ChangeDiscountStatusRequest
+	var request dto.ChangeDiscountStatusRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var discount models.Discount
 	if err := config.DB.First(&discount, request.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Không tìm thấy mã giảm giá", "error": err.Error()})
+		response.NotFound(c)
 		return
 	}
 
 	discount.Status = request.Status
 
 	if err := discount.ValidateStatusDiscount(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	if err := config.DB.Model(&discount).Update("status", request.Status).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể thay đổi trạng thái mã giảm giá", "error": err.Error()})
+		response.ServerError(c)
 		return
 	}
 
@@ -325,5 +284,5 @@ func ChangeDiscountStatus(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, cacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Thay đổi trạng thái mã giảm giá thành công", "data": discount})
+	response.Success(c, discount)
 }
