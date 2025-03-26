@@ -5,24 +5,23 @@ import (
 	"time"
 )
 
-// RoomRequest là DTO cho request tạo room
 type RoomRequest struct {
-	RoomId       uint            `json:"id" binding:"required"`
-	RoomName     string          `json:"roomName" binding:"required"`
-	Type         uint            `json:"type" binding:"required"`
-	NumBed       int             `json:"numBed" binding:"required"`
-	NumTolet     int             `json:"numTolet" binding:"required"`
-	Acreage      int             `json:"acreage" binding:"required"`
-	Price        int             `json:"price" binding:"required"`
+	RoomId       uint            `json:"id"`
+	RoomName     string          `json:"roomName"`
+	Type         uint            `json:"type"`
+	NumBed       int             `json:"numBed"`
+	NumTolet     int             `json:"numTolet"`
+	Acreage      int             `json:"acreage"`
+	Price        int             `json:"price"`
 	DaysPrice    json.RawMessage `json:"daysPrice"`
 	HolidayPrice json.RawMessage `json:"holidayPrice"`
 	Description  string          `json:"description"`
-	Status       int             `json:"status" binding:"required"`
+	Status       int             `json:"status"`
 	Avatar       string          `json:"avatar"`
 	Img          json.RawMessage `json:"img"`
-	Num          int             `json:"num" binding:"required"`
+	Num          int             `json:"num"`
 	Furniture    json.RawMessage `json:"furniture" gorm:"type:json"`
-	People       int             `json:"people" binding:"required"`
+	People       int             `json:"people"`
 }
 
 // DayPrice là DTO cho giá theo ngày
@@ -31,7 +30,6 @@ type DayPrice struct {
 	Price int    `json:"price"`
 }
 
-// RoomResponse là DTO cho response của room
 type RoomResponse struct {
 	RoomId    uint      `json:"id"`
 	RoomName  string    `json:"roomName"`
@@ -82,14 +80,6 @@ type CreateRoomRequest struct {
 	Price           int    `json:"price" binding:"required"`
 	Description     string `json:"description"`
 	Image           string `json:"image"`
-}
-
-// UpdateRoomRequest là DTO cho request cập nhật room
-type UpdateRoomRequest struct {
-	RoomName    string `json:"roomName" binding:"required"`
-	Price       int    `json:"price" binding:"required"`
-	Description string `json:"description"`
-	Image       string `json:"image"`
 }
 
 // RoomStatusRequest là DTO cho request cập nhật trạng thái room
