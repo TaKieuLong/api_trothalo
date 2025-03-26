@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"net/http"
 	"net/url"
 	"new/config"
 	"new/dto"
+	"new/response"
 	"new/services"
 	"sort"
 	"strconv"
@@ -75,19 +75,19 @@ func getUserIDs(users []models.User) []uint {
 func GetUserAcc(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 2 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+		response.Forbidden(c)
 		return
 	}
 
@@ -109,7 +109,7 @@ func GetUserAcc(c *gin.Context) {
 		Where("user_id = ?", currentUserID)
 
 	if err := tx.Find(&allAccommodations).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể lấy danh sách chỗ ở"})
+		response.ServerError(c)
 		return
 	}
 
@@ -182,48 +182,39 @@ RESPONSE:
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách chỗ ở thành công",
-		"data": accommodationsResponse,
-	})
+	response.Success(c, accommodationsResponse)
 }
 
 func (u UserController) UpdateUserBalance(c *gin.Context) {
 	var req UpdateBalanceRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	if req.Amount > 2000000 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không được vượt quá 2.000.000"})
+		response.BadRequest(c, "Không được vượt quá 2.000.000")
 		return
 	} else if req.Amount < -1000000 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không được nhỏ hơn -1.000.000"})
+		response.BadRequest(c, "Không được nhỏ hơn -1.000.000")
 		return
 	}
 
 	var user models.User
 
 	if err := config.DB.First(&user, req.UserID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	now := time.Now()
 
-	if user.DateCheck.Year() == now.Year() && user.DateCheck.Month() == now.Month() {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Bạn đã cập nhật lương trong tháng này rồi, không thể cập nhật nữa!"})
-		return
-	}
-
 	user.Amount += req.Amount
 	user.DateCheck = now
 
 	if err := config.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật số dư"})
+		response.ServerError(c)
 		return
 	}
 	//Xóa redis cache
@@ -232,28 +223,24 @@ func (u UserController) UpdateUserBalance(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Cập nhật số dư thành công",
-		"data": gin.H{
-			"userId":    user.ID,
-			"amount":    user.Amount,
-			"dateCheck": user.DateCheck,
-		},
+	response.Success(c, gin.H{
+		"userId":    user.ID,
+		"amount":    user.Amount,
+		"dateCheck": user.DateCheck,
 	})
 }
 
 func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -263,23 +250,23 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
-	if len(req.AccommodationIDs) > 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Chỉ được gửi tối đa 5 địa điểm lưu trú"})
+	if len(req.AccommodationIDs) > 10 {
+		response.BadRequest(c, "Chỉ được gửi tối đa 5 địa điểm lưu trú")
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, req.UserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại", "err": err})
+		response.NotFound(c)
 		return
 	}
 
 	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
+		response.Forbidden(c)
 		return
 	}
 
@@ -287,18 +274,18 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 	if err := config.DB.Model(&models.Accommodation{}).
 		Where("id IN ? AND user_id = ?", req.AccommodationIDs, currentUserID).
 		Count(&count).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi kiểm tra quyền sở hữu"})
+		response.ServerError(c)
 		return
 	}
 
 	if count != int64(len(req.AccommodationIDs)) {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Bạn không sở hữu tất cả các lưu trú này"})
+		response.Forbidden(c)
 		return
 	}
 
 	user.AccommodationIDs = req.AccommodationIDs
 	if err := config.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật địa điểm điểm danh"})
+		response.ServerError(c)
 		return
 	}
 
@@ -308,13 +295,9 @@ func (u UserController) UpdateUserAccommodation(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, "user:all")
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Phân quyền thành công",
-		"data": gin.H{
-			"userId":          user.ID,
-			"accommodationId": user.AccommodationIDs,
-		},
+	response.Success(c, gin.H{
+		"userId":          user.ID,
+		"accommodationId": user.AccommodationIDs,
 	})
 }
 
@@ -328,24 +311,24 @@ func (u UserController) CheckInUser(c *gin.Context) {
 	var currentTime = time.Now()
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, req.UserID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	if user.AccommodationIDs == nil || len(user.AccommodationIDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng chưa có thông tin lưu trú"})
+		response.BadRequest(c, "Người dùng chưa có thông tin lưu trú")
 		return
 	}
 
 	var accommodations []models.Accommodation
 	if err := config.DB.Where("id IN ?", user.AccommodationIDs).Find(&accommodations).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy thông tin lưu trú"})
+		response.ServerError(c)
 		return
 	}
 
@@ -373,7 +356,7 @@ func (u UserController) CheckInUser(c *gin.Context) {
 	}
 
 	if !validLocation {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Vị trí không hợp lệ"})
+		response.BadRequest(c, "Vị trí không hợp lệ")
 		return
 	}
 
@@ -381,7 +364,7 @@ func (u UserController) CheckInUser(c *gin.Context) {
 	today := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, currentTime.Location())
 
 	if err := config.DB.Where("user_id = ? AND DATE(date) = ?", req.UserID, today).First(&existingRecord).Error; err == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng đã điểm danh hôm nay"})
+		response.BadRequest(c, "Người dùng đã điểm danh hôm nay")
 		return
 	}
 
@@ -393,7 +376,7 @@ func (u UserController) CheckInUser(c *gin.Context) {
 	}
 
 	if err := config.DB.Create(&checkInRecord).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lưu thông tin điểm danh", "err": err})
+		response.ServerError(c)
 		return
 	}
 
@@ -404,47 +387,42 @@ func (u UserController) CheckInUser(c *gin.Context) {
 		_ = services.DeleteFromRedis(config.Ctx, rdb, adminCacheKey)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Điểm danh thành công",
-		"data": gin.H{
-			"userId":      user.ID,
-			"status":      user.Status,
-			"timeCheckIn": currentTime,
-		},
-		// "d": d,
+	response.Success(c, gin.H{
+		"userId":      user.ID,
+		"status":      user.Status,
+		"timeCheckIn": currentTime,
 	})
 }
 
 func GetUserCalendar(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	if currentUserRole != 2 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Không có quyền truy cập"})
+		response.Forbidden(c)
 		return
 	}
 
 	date := c.Query("date")
 
 	if date == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Thiếu tham số date"})
+		response.BadRequest(c, "Thiếu tham số date")
 		return
 	}
 
 	parsedDate, err := time.Parse("01/2006", date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+		response.BadRequest(c, "Định dạng date không hợp lệ")
 		return
 	}
 
@@ -454,7 +432,7 @@ func GetUserCalendar(c *gin.Context) {
 
 	users, err := GetUsersByAdminID(currentUserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+		response.ServerError(c)
 		return
 	}
 
@@ -463,7 +441,7 @@ func GetUserCalendar(c *gin.Context) {
 
 	checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+		response.ServerError(c)
 		return
 	}
 
@@ -487,24 +465,22 @@ func GetUserCalendar(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":  1,
-		"mess":  "Lấy danh sách ngày thành công",
-		"total": daysInMonth,
-		"data":  days,
-	})
+	response.SuccessWithTotal(c,
+		days,
+		daysInMonth,
+	)
 }
 
 func CalculateUserSalaryInit(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -512,17 +488,17 @@ func CalculateUserSalaryInit(c *gin.Context) {
 		UserID uint `json:"userId"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, req.UserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
+		response.Forbidden(c)
 		return
 	}
 
@@ -537,7 +513,7 @@ func CalculateUserSalaryInit(c *gin.Context) {
 
 	checkIns, err := GetCheckedInUsers(startDate, endDate, []models.User{user})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh"})
+		response.ServerError(c)
 		return
 	}
 
@@ -558,7 +534,7 @@ func CalculateUserSalaryInit(c *gin.Context) {
 				SalaryDate: time.Now(),
 			}
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi kiểm tra lương người dùng"})
+			response.ServerError(c)
 			return
 		}
 	} else {
@@ -569,36 +545,32 @@ func CalculateUserSalaryInit(c *gin.Context) {
 	}
 
 	if err := config.DB.Save(&userSalary).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật lương"})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Tính lương thành công",
-		"data": gin.H{
-			"id":         userSalary.ID,
-			"userId":     user.ID,
-			"amount":     amount,
-			"attendance": attendanceCount,
-			"absence":    absenceCount,
-			"date":       currentMonth,
-			"totalDays":  totalDays,
-		},
+	response.Success(c, gin.H{
+		"id":         userSalary.ID,
+		"userId":     user.ID,
+		"amount":     amount,
+		"attendance": attendanceCount,
+		"absence":    absenceCount,
+		"date":       currentMonth,
+		"totalDays":  totalDays,
 	})
 }
 
 func CalculateUserSalary(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -611,13 +583,13 @@ func CalculateUserSalary(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var user models.User
 	if err := config.DB.Preload("Banks").First(&user, req.UserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -631,7 +603,7 @@ func CalculateUserSalary(c *gin.Context) {
 	}
 
 	if user.Role != 3 || user.AdminId == nil || *user.AdminId != currentUserID {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không thuộc phạm quyền của bạn"})
+		response.Forbidden(c)
 		return
 	}
 
@@ -641,7 +613,7 @@ func CalculateUserSalary(c *gin.Context) {
 	// Tìm hoặc tạo bản ghi usersalary
 	var userSalary models.UserSalary
 	if err := config.DB.Where("id = ?", req.SalaryID).First(&userSalary).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Bản ghi lương không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -651,35 +623,31 @@ func CalculateUserSalary(c *gin.Context) {
 	userSalary.Penalty = req.Penalty
 
 	if err := config.DB.Save(&userSalary).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lưu thông tin lương"})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Tính lương thành công",
-		"data": gin.H{
-			"userId":      user.ID,
-			"baseSalary":  user.Amount,
-			"bonus":       req.Bonus,
-			"penalty":     req.Penalty,
-			"totalSalary": totalSalary,
-			"bank":        banks,
-		},
+	response.Success(c, gin.H{
+		"userId":      user.ID,
+		"baseSalary":  user.Amount,
+		"bonus":       req.Bonus,
+		"penalty":     req.Penalty,
+		"totalSalary": totalSalary,
+		"bank":        banks,
 	})
 }
 
 func UpdateSalaryStatus(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
@@ -689,76 +657,72 @@ func UpdateSalaryStatus(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var userSalary models.UserSalary
 	if err := config.DB.First(&userSalary, req.SalaryID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Bản ghi lương không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, userSalary.UserID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
 	if user.AdminId == nil || *user.AdminId != currentUserID {
-		c.JSON(http.StatusForbidden, gin.H{"code": 0, "mess": "Bạn không có quyền cập nhật trạng thái lương"})
+		response.Forbidden(c)
 		return
 	}
 
 	// Cập nhật trạng thái
 	userSalary.Status = req.Status
 	if err := config.DB.Save(&userSalary).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi cập nhật trạng thái"})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Cập nhật trạng thái thành công",
-		"data": gin.H{
-			"salaryId": req.SalaryID,
-			"status":   req.Status,
-		},
+	response.Success(c, gin.H{
+		"salaryId": req.SalaryID,
+		"status":   req.Status,
 	})
 }
 
 func GetUserCheckin(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	// Kết nối Redis và tạo cacheKey
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
+		response.ServerError(c)
 		return
 	}
 	cacheKey := fmt.Sprintf("user_checkin:%d", currentUserID)
 
-	var response []gin.H
+	var checkinResponse []gin.H
 	// Kiểm tra cache trong Redis
-	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &response); err == nil && len(response) > 0 {
+	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &checkinResponse); err == nil && len(checkinResponse) > 0 {
 		// Nếu dữ liệu có trong cache, không cần truy vấn lại DB
 		log.Println("Dữ liệu lấy từ cache")
 	} else {
 		// Nếu không có dữ liệu trong cache, thực hiện truy vấn DB
 		var user models.User
 		if err := config.DB.First(&user, currentUserID).Error; err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+			response.NotFound(c)
 			return
 		}
 
@@ -769,7 +733,7 @@ func GetUserCheckin(c *gin.Context) {
 
 		parsedDate, err := time.Parse("01/2006", date)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+			response.BadRequest(c, "Định dạng date không hợp lệ")
 			return
 		}
 		year, month, _ := parsedDate.Date()
@@ -777,7 +741,7 @@ func GetUserCheckin(c *gin.Context) {
 
 		users, err := GetUsersByAdminID(currentUserID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+			response.ServerError(c)
 			return
 		}
 
@@ -790,7 +754,7 @@ func GetUserCheckin(c *gin.Context) {
 
 		checkedInUsers, err := GetCheckedInUsers(startDate, endDate, users)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+			response.ServerError(c)
 			return
 		}
 
@@ -805,7 +769,7 @@ func GetUserCheckin(c *gin.Context) {
 			}
 			notCheckedInDays := daysInMonth - checkinCount
 
-			response = append(response, gin.H{
+			checkinResponse = append(checkinResponse, gin.H{
 				"id":               u.ID,
 				"name":             u.Name,
 				"phoneNumber":      u.PhoneNumber,
@@ -817,7 +781,7 @@ func GetUserCheckin(c *gin.Context) {
 		}
 
 		// Lưu cache vào Redis
-		err = services.SetToRedis(config.Ctx, rdb, cacheKey, response, 30*time.Minute)
+		err = services.SetToRedis(config.Ctx, rdb, cacheKey, checkinResponse, 30*time.Minute)
 		if err != nil {
 			log.Printf("Lỗi khi lưu dữ liệu vào Redis: %v", err)
 		}
@@ -828,7 +792,7 @@ func GetUserCheckin(c *gin.Context) {
 	nameFilter := c.Query("name")
 	phoneFilter := c.Query("phone")
 	var filteredResponse []gin.H
-	for _, r := range response {
+	for _, r := range checkinResponse {
 		nameVal, _ := r["name"].(string)
 		phoneVal, _ := r["phoneNumber"].(string)
 		if (nameFilter == "" || strings.Contains(strings.ToLower(nameVal), strings.ToLower(nameFilter))) &&
@@ -862,35 +826,26 @@ func GetUserCheckin(c *gin.Context) {
 		filteredResponse = filteredResponse[startIdx:endIdx]
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Lấy danh sách chấm công thành công!",
-		"data": filteredResponse,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	response.SuccessWithPagination(c, filteredResponse, page, limit, total)
 }
 
 func GetUserSalary(c *gin.Context) {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing"})
+		response.Unauthorized(c)
 		return
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, err := GetIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
 		return
 	}
 
 	var user models.User
 	if err := config.DB.First(&user, currentUserID).Error; err != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Người dùng không tồn tại"})
+		response.NotFound(c)
 		return
 	}
 
@@ -901,7 +856,7 @@ func GetUserSalary(c *gin.Context) {
 
 	parsedDate, err := time.Parse("01/2006", date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Định dạng date không hợp lệ"})
+		response.BadRequest(c, "Định dạng date không hợp lệ")
 		return
 	}
 	year, month, _ := parsedDate.Date()
@@ -909,7 +864,7 @@ func GetUserSalary(c *gin.Context) {
 
 	users, err := GetUsersByAdminID(currentUserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy danh sách user"})
+		response.ServerError(c)
 		return
 	}
 
@@ -922,7 +877,7 @@ func GetUserSalary(c *gin.Context) {
 
 	userSalaries, err := GetUserSalaries(startDate, endDate, users)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi khi lấy dữ liệu điểm danh", "err": err})
+		response.ServerError(c)
 		return
 	}
 
@@ -931,7 +886,7 @@ func GetUserSalary(c *gin.Context) {
 		userMap[u.ID] = u
 	}
 
-	var response []gin.H
+	var salaryResponse []gin.H
 	for _, s := range userSalaries {
 
 		userInfo, ok := userMap[s.UserID]
@@ -939,7 +894,7 @@ func GetUserSalary(c *gin.Context) {
 			continue
 		}
 
-		response = append(response, gin.H{
+		salaryResponse = append(salaryResponse, gin.H{
 			"id":          s.UserID,
 			"amount":      userInfo.Amount,
 			"name":        userInfo.Name,
@@ -955,7 +910,7 @@ func GetUserSalary(c *gin.Context) {
 	nameFilter := c.Query("name")
 	phoneFilter := c.Query("phone")
 	var filteredResponse []gin.H
-	for _, r := range response {
+	for _, r := range salaryResponse {
 		nameVal, _ := r["name"].(string)
 		phoneVal, _ := r["phoneNumber"].(string)
 		if (nameFilter == "" || strings.Contains(strings.ToLower(nameVal), strings.ToLower(nameFilter))) &&
@@ -989,16 +944,7 @@ func GetUserSalary(c *gin.Context) {
 		filteredResponse = filteredResponse[startIdx:endIdx]
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "Tính lương thành công",
-		"data": filteredResponse,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	response.SuccessWithPagination(c, filteredResponse, page, limit, total)
 }
 
 func GetAccommodationReceptionist(c *gin.Context) {
@@ -1007,13 +953,14 @@ func GetAccommodationReceptionist(c *gin.Context) {
 
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Authorization header is missing!"})
+		response.Unauthorized(c)
 		return
 	}
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 	currentUserID, currentUserRole, err := GetUserIDFromToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 0, "mess": "Invalid token"})
+		response.Unauthorized(c)
+		return
 	}
 
 	//Tạo cache key Redis
@@ -1024,8 +971,8 @@ func GetAccommodationReceptionist(c *gin.Context) {
 	// Kết nối Redis
 	rdb, err := config.ConnectRedis()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể kết nối Redis"})
-
+		response.ServerError(c)
+		return
 	}
 	if err := services.GetFromRedis(config.Ctx, rdb, cacheKey, &accommodations); err == nil && len(accommodations) > 0 {
 		// Nếu dữ liệu có trong cache, không cần truy vấn lại DB
@@ -1033,7 +980,7 @@ func GetAccommodationReceptionist(c *gin.Context) {
 	} else {
 		// Lấy thông tin user từ DB
 		if err := config.DB.First(&user, currentUserID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"code": 0, "mess": "User not found"})
+			response.NotFound(c)
 			return
 		}
 
@@ -1045,7 +992,7 @@ func GetAccommodationReceptionist(c *gin.Context) {
 			}
 
 			if err := config.DB.Where("id IN (?)", ids).Find(&accommodations).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Error fetching accommodations"})
+				response.ServerError(c)
 				return
 			}
 		}
@@ -1146,15 +1093,5 @@ func GetAccommodationReceptionist(c *gin.Context) {
 		filteredResponse = filteredResponse[start:end]
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 1,
-		"mess": "lấy danh sách cơ sở thành công!",
-		"data": filteredResponse,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
-
+	response.SuccessWithPagination(c, filteredResponse, page, limit, total)
 }

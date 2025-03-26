@@ -21,12 +21,29 @@ type Pagination struct {
 	Total int `json:"total"`
 }
 
+type ResponseTotal struct {
+	Code       int         `json:"code"`
+	Mess       string      `json:"mess"`
+	Data       interface{} `json:"data,omitempty"`
+	Total      int         `json:"total"`
+	Pagination *Pagination `json:"pagination,omitempty"`
+}
+
 // Success trả về response thành công
 func Success(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusOK, Response{
 		Code: 1,
 		Mess: "Thành công",
 		Data: data,
+	})
+}
+
+func SuccessWithTotal(c *gin.Context, data interface{}, total int) {
+	c.JSON(http.StatusOK, ResponseTotal{
+		Code:  1,
+		Mess:  "Thành công",
+		Total: total,
+		Data:  data,
 	})
 }
 
