@@ -112,7 +112,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, redisCli *redis.Client, cld *c
 	v1.PUT("/paymentStatus", controllers.UpdatePaymentStatus)
 
 	//doanh thu
-	v1.GET("/revenue", middlewares.AuthMiddleware(1), controllers.GetTotalRevenue)
+	v1.GET("/revenue", controllers.GetTotalRevenue)
 	v1.GET("/revenue/detail", controllers.GetTotal)
 	v1.GET("/today", controllers.GetToday)
 	v1.GET("/todayUser", middlewares.AuthMiddleware(1), controllers.GetTodayUser)

@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"new/config"
+	"new/dto"
 	"new/models"
+	"new/response"
 	"new/services"
 	"os"
 	"strings"
@@ -16,71 +17,15 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/idtoken"
 	"gorm.io/gorm"
 )
 
-type RegisterInPut struct {
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required"`
-	PhoneNumber string `json:"phoneNumber" binding:"required"`
-}
-
-type LoginInput struct {
-	Identifier string `json:"identifier" binding:"required"`
-	Password   string `json:"password" binding:"required"`
-}
-
-type Bank struct {
-	BankName      string `json:"bankName"`
-	AccountNumber string `json:"accountNumber"`
-	BankShortName string `json:"bankShortName"`
-}
-
-type UserResponse struct {
-	UserID           uint           `json:"id"`
-	UserName         string         `json:"name"`
-	UserEmail        string         `json:"email"`
-	UserVerified     bool           `json:"verified"`
-	UserPhone        string         `json:"phone"`
-	UserRole         int            `json:"role"`
-	CreatedAt        time.Time      `json:"createdAt"`
-	UpdatedAt        time.Time      `json:"updatedAt"`
-	UserStatus       int            `json:"status"`
-	UserAvatar       string         `json:"avatar"`
-	UserBanks        []Bank         `json:"banks"`
-	Children         []UserResponse `json:"children,omitempty"`
-	AdminId          *uint          `json:"adminId,omitempty"`
-	Gender           int            `json:"gender"`
-	DateOfBirth      string         `json:"dateOfBirth"`
-	Amount           int64          `json:"amount"`
-	AccommodationIDs pq.Int64Array  `json:"accommodation_ids"`
-}
-
-type UserLoginResponse struct {
-	UserID       uint      `json:"id"`
-	UserName     string    `json:"name"`
-	UserEmail    string    `json:"email"`
-	UserVerified bool      `json:"verified"`
-	UserPhone    string    `json:"phone"`
-	UserRole     int       `json:"role"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	UserStatus   int       `json:"status"`
-	UserAvatar   string    `json:"avatar"`
-	UserBanks    []Bank    `json:"banks"`
-	Gender       int       `json:"gender"`
-	DateOfBirth  string    `json:"dateOfBirth"`
-	AdminId      *uint     `json:"adminId"`
-	Amount       int64     `json:"amount"`
-}
-
 func Login(c *gin.Context) {
-	var input LoginInput
+	var input dto.LoginInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -88,12 +33,12 @@ func Login(c *gin.Context) {
 
 	var user models.User
 	if err := config.DB.Preload("Banks").Where("email = ? OR phone_number = ?", input.Identifier, input.Identifier).First(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Email hoặc mật khẩu không hợp lệ"})
+		response.BadRequest(c, "Email hoặc mật khẩu không hợp lệ")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Email hoặc mật khẩu không hợp lệ"})
+		response.BadRequest(c, "Email hoặc mật khẩu không hợp lệ")
 		return
 	}
 
@@ -104,22 +49,22 @@ func Login(c *gin.Context) {
 
 	accessToken, err := services.GenerateToken(userInfo, 60*24*3, true)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 
 	// Nếu không, lấy Bank của user hiện tại
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
 		})
 	}
 
-	userResponse := UserLoginResponse{
+	userResponse := dto.UserLoginResponse{
 		UserID:       user.ID,
 		UserName:     user.Name,
 		UserEmail:    user.Email,
@@ -135,39 +80,38 @@ func Login(c *gin.Context) {
 		Amount:       user.Amount,
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng nhập thành công", "data": gin.H{
+	response.Success(c, gin.H{
 		"user_info":   userResponse,
 		"accessToken": accessToken,
-	}})
+	})
 }
 
 func Logout(c *gin.Context) {
 	cookies := c.Request.Cookies()
 	for _, cookie := range cookies {
-
 		c.SetCookie(cookie.Name, "", -1, "/", "", cookie.Secure, cookie.HttpOnly)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng xuất thành công"})
+	response.Success(c, nil)
 }
 
 func VerifyEmail(c *gin.Context) {
 	code := c.Query("token")
 	if code == "" {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Cần mã xác thực"})
+		response.BadRequest(c, "Cần mã xác thực")
 		return
 	}
 
 	var user models.User
 	result := config.DB.Where("code = ?", code).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Có lỗi xảy ra khi xác minh email", "detai": result.Error.Error()})
+		response.BadRequest(c, "Có lỗi xảy ra khi xác minh email")
 		return
 	}
 
 	// Kiểm tra xem mã xác thực đã hết hạn chưa (5 phút)
 	if time.Since(user.CodeCreatedAt) > 5*time.Minute {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "mess": "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới."})
+		response.BadRequest(c, "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới.")
 		return
 	}
 
@@ -175,126 +119,123 @@ func VerifyEmail(c *gin.Context) {
 	user.Code = ""
 	config.DB.Save(&user)
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Email đã được xác thực", "data": user})
+	response.Success(c, user)
 }
 
 func RegisterUser(c *gin.Context) {
-	var input models.User
+	var input dto.RegisterInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	user, err := services.CreateUser(input)
+	user, err := services.CreateUser(models.User{
+		Email:       input.Email,
+		Password:    input.Password,
+		PhoneNumber: input.PhoneNumber,
+	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Đăng ký thành công!", "data": user})
+	response.Success(c, user)
 }
 
 func ResendVerificationCode(c *gin.Context) {
-	var input struct {
-		Identifier string `json:"identifier" binding:"required"`
-	}
+	var input dto.ResendVerificationInput
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	var user models.User
 	result := config.DB.Where("email = ? OR phone_number = ?", input.Identifier, input.Identifier).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng không tồn tại."})
+		response.BadRequest(c, "Người dùng không tồn tại.")
 		return
 	}
 
 	err := services.RegenerateVerificationCode(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Lỗi trong quá trình tạo mã xác thực mới."})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Mã xác nhận mới đã được gửi đến email của bạn."})
+	response.Success(c, nil)
 }
 
 func ForgetPassword(c *gin.Context) {
-	var input struct {
-		Identifier string `json:"identifier" binding:"required"`
-	}
+	var input dto.ForgetPasswordInput
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	var user models.User
 	result := config.DB.Where("email = ? OR phone_number = ?", input.Identifier, input.Identifier).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng không tồn tại."})
+		response.BadRequest(c, "Người dùng không tồn tại.")
 		return
 	}
 
 	err := services.ResetPass(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể gửi mã xác nhận: " + err.Error()})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Mã xác nhận để đặt lại mật khẩu đã được gửi đến email của bạn."})
+	response.Success(c, nil)
 }
 
 func ResetPassword(c *gin.Context) {
-	var input LoginInput
+	var input dto.LoginInput
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	var user models.User
 	result := config.DB.Where("email = ? OR phone_number = ?", input.Identifier, input.Identifier).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Người dùng không tồn tại."})
+		response.BadRequest(c, "Người dùng không tồn tại.")
 		return
 	}
 
 	err := services.NewPass(user, input.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể đổi mật khẩu: " + err.Error()})
+		response.ServerError(c)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Mật khẩu đổi thành công"})
+	response.Success(c, nil)
 }
 
 func VerifyCode(c *gin.Context) {
-	var input struct {
-		Email string `json:"email" binding:"required"`
-		Code  string `json:"code" binding:"required"`
-	}
+	var input dto.VerifyCodeInput
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ", "error": err.Error()})
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
 		return
 	}
 
 	var user models.User
 	result := config.DB.Where("email = ?", input.Email).First(&user)
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy người dùng với email này"})
+		response.BadRequest(c, "Không tìm thấy người dùng với email này")
 		return
 	}
 
 	if user.Code != input.Code {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Mã xác thực không hợp lệ"})
+		response.BadRequest(c, "Mã xác thực không hợp lệ")
 		return
 	}
 
 	if time.Since(user.CodeCreatedAt) > 5*time.Minute {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới."})
+		response.BadRequest(c, "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới.")
 		return
 	}
 
@@ -305,7 +246,7 @@ func VerifyCode(c *gin.Context) {
 
 	config.DB.Save(&user)
 
-	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Xác thực thành công"})
+	response.Success(c, nil)
 }
 
 func GetUserIDFromToken(tokenString string) (uint, int, error) {
@@ -373,13 +314,6 @@ func GetIDFromToken(tokenString string) (uint, error) {
 	return uint(userID), nil
 }
 
-type GoogleUser struct {
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	VerifiedEmail bool   `json:"verified_email"`
-	Picture       string `json:"picture"`
-}
-
 // AuthGoogle function để xử lý yêu cầu xác thực từ Google
 func AuthGoogle(c *gin.Context) {
 	var token struct {
@@ -388,17 +322,17 @@ func AuthGoogle(c *gin.Context) {
 
 	// Bind dữ liệu token từ request
 	if err := c.ShouldBindJSON(&token); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 	// Xác minh tokenId từ Google
 	payload, err := verifyGoogleIDToken(token.TokenId)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Google token"})
+		response.Unauthorized(c)
 		return
 	}
 	// Lấy thông tin người dùng từ payload
-	googleUser := GoogleUser{
+	googleUser := dto.GoogleUser{
 		Name:          payload.Claims["name"].(string),
 		Email:         payload.Claims["email"].(string),
 		VerifiedEmail: payload.Claims["email_verified"].(bool),
@@ -406,7 +340,7 @@ func AuthGoogle(c *gin.Context) {
 	}
 	// Kiểm tra nếu email chưa được xác thực
 	if !googleUser.VerifiedEmail {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email has not been verified"})
+		response.BadRequest(c, "Email has not been verified")
 		return
 	}
 
@@ -417,16 +351,16 @@ func AuthGoogle(c *gin.Context) {
 		// Nếu chưa có tài khoản thì tạo tài khoản mới
 		user, err = services.CreateGoogleUser(googleUser.Name, googleUser.Email, googleUser.Picture)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi tạo người dùng mới!"})
+			response.ServerError(c)
 			return
 		}
 	} else if result.Error != nil {
 		// Nếu có lỗi khi tìm kiếm người dùng
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khj tìm kiếm người dùng: " + result.Error.Error()})
+		response.ServerError(c)
 		return
 	}
 
-	userResponse := UserLoginResponse{
+	userResponse := dto.UserLoginResponse{
 		UserID:       user.ID,
 		UserName:     user.Name,
 		UserEmail:    user.Email,
@@ -447,16 +381,13 @@ func AuthGoogle(c *gin.Context) {
 	accessToken, err := services.GenerateToken(userInfo, 15, true)
 	if err != nil {
 		log.Println("Error generating access token:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 1,
-		"message": "Login successful",
-		"data": gin.H{
-			"user_info":   userResponse,
-			"accessToken": accessToken,
-		},
+	response.Success(c, gin.H{
+		"user_info":   userResponse,
+		"accessToken": accessToken,
 	})
 }
 

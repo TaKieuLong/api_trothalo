@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"new/config"
+	"new/dto"
 	"sort"
 	"strconv"
 	"strings"
@@ -159,7 +160,7 @@ func (u UserController) GetUsers(c *gin.Context) {
 		filteredUsers = append(filteredUsers, user)
 	}
 	// Lọc và chuẩn bị response
-	var userResponses []UserResponse
+	var userResponses []dto.UserResponse
 	for _, user := range filteredUsers {
 
 		if currentUserRole == 1 && user.Role == 3 {
@@ -176,63 +177,63 @@ func (u UserController) GetUsers(c *gin.Context) {
 			}
 		}
 
-		var banks []Bank
+		var banks []dto.Bank
 		for _, bank := range user.Banks {
-			banks = append(banks, Bank{
+			banks = append(banks, dto.Bank{
 				BankName:      bank.BankName,
 				AccountNumber: bank.AccountNumber,
 				BankShortName: bank.BankShortName,
 			})
 		}
 
-		var childrenResponses []UserResponse
+		var childrenResponses []dto.UserResponse
 		for _, child := range user.Children {
-			var childBanks []Bank
+			var childBanks []dto.Bank
 			for _, bank := range child.Banks {
-				childBanks = append(childBanks, Bank{
+				childBanks = append(childBanks, dto.Bank{
 					BankName:      bank.BankName,
 					AccountNumber: bank.AccountNumber,
 					BankShortName: bank.BankShortName,
 				})
 			}
 
-			childrenResponses = append(childrenResponses, UserResponse{
-				UserID:       child.ID,
-				UserName:     child.Name,
-				UserEmail:    child.Email,
-				UserVerified: child.IsVerified,
-				UserPhone:    child.PhoneNumber,
-				UserRole:     child.Role,
-				UserAvatar:   child.Avatar,
-				UserBanks:    childBanks,
-				UserStatus:   child.Status,
-				UpdatedAt:    child.UpdatedAt,
-				CreatedAt:    child.CreatedAt,
-				Amount:       child.Amount,
+			childrenResponses = append(childrenResponses, dto.UserResponse{
+				ID:          child.ID,
+				Name:        child.Name,
+				Email:       child.Email,
+				IsVerified:  child.IsVerified,
+				PhoneNumber: child.PhoneNumber,
+				Role:        child.Role,
+				Avatar:      child.Avatar,
+				Banks:       childBanks,
+				Status:      child.Status,
+				UpdatedAt:   child.UpdatedAt,
+				CreatedAt:   child.CreatedAt,
+				Amount:      child.Amount,
 			})
 		}
 
-		userResponses = append(userResponses, UserResponse{
-			UserID:       user.ID,
-			UserName:     user.Name,
-			UserEmail:    user.Email,
-			UserVerified: user.IsVerified,
-			UserPhone:    user.PhoneNumber,
-			UserRole:     user.Role,
-			UpdatedAt:    user.UpdatedAt,
-			CreatedAt:    user.CreatedAt,
-			UserAvatar:   user.Avatar,
-			UserBanks:    banks,
-			UserStatus:   user.Status,
-			Children:     childrenResponses,
-			AdminId:      user.AdminId,
-			Amount:       user.Amount,
+		userResponses = append(userResponses, dto.UserResponse{
+			ID:          user.ID,
+			Name:        user.Name,
+			Email:       user.Email,
+			IsVerified:  user.IsVerified,
+			PhoneNumber: user.PhoneNumber,
+			Role:        user.Role,
+			UpdatedAt:   user.UpdatedAt,
+			CreatedAt:   user.CreatedAt,
+			Avatar:      user.Avatar,
+			Banks:       banks,
+			Status:      user.Status,
+			Children:    childrenResponses,
+			AdminId:     user.AdminId,
+			Amount:      user.Amount,
 		})
 	}
 
 	// Sắp xếp và phân trang
 	sort.Slice(userResponses, func(i, j int) bool {
-		return userResponses[i].UserID < userResponses[j].UserID
+		return userResponses[i].ID < userResponses[j].ID
 	})
 
 	start := page * limit
@@ -374,25 +375,25 @@ func (u UserController) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
 		})
 	}
 
-	userResponse := UserResponse{
-		UserID:       user.ID,
-		UserName:     user.Name,
-		UserEmail:    user.Email,
-		UserVerified: user.IsVerified,
-		UserPhone:    user.PhoneNumber,
-		UserRole:     user.Role,
-		UserAvatar:   user.Avatar,
-		UserBanks:    banks,
-		UserStatus:   user.Status,
+	userResponse := dto.UserResponse{
+		ID:          user.ID,
+		Name:        user.Name,
+		Email:       user.Email,
+		IsVerified:  user.IsVerified,
+		PhoneNumber: user.PhoneNumber,
+		Role:        user.Role,
+		Avatar:      user.Avatar,
+		Banks:       banks,
+		Status:      user.Status,
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 1, "mess": "Lấy người dùng thành công", "data": userResponse})
@@ -445,30 +446,30 @@ func (u UserController) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
 		})
 	}
 
-	userResponse := UserResponse{
-		UserID:       user.ID,
-		UserName:     user.Name,
-		UserEmail:    user.Email,
-		UserVerified: user.IsVerified,
-		UserPhone:    user.PhoneNumber,
-		UserRole:     user.Role,
-		UserAvatar:   user.Avatar,
-		UserBanks:    banks,
-		CreatedAt:    user.CreatedAt,
-		UpdatedAt:    user.UpdatedAt,
-		UserStatus:   user.Status,
-		AdminId:      user.AdminId,
-		Gender:       user.Gender,
-		DateOfBirth:  user.DateOfBirth,
+	userResponse := dto.UserResponseUpdate{
+		ID:          user.ID,
+		Name:        user.Name,
+		Email:       user.Email,
+		IsVerified:  user.IsVerified,
+		PhoneNumber: user.PhoneNumber,
+		Role:        user.Role,
+		Avatar:      user.Avatar,
+		Banks:       banks,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Status:      user.Status,
+		AdminId:     user.AdminId,
+		Gender:      user.Gender,
+		DateOfBirth: user.DateOfBirth,
 	}
 
 	//Xóa redis
@@ -578,7 +579,7 @@ func (u UserController) GetReceptionistByID(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 	u.DB.Where("user_id = ?", id).Find(&banks)
 
 	var accommodations []struct {
@@ -598,16 +599,16 @@ func (u UserController) GetReceptionistByID(c *gin.Context) {
 			Find(&accommodations)
 	}
 
-	userResponse := UserResponse{
-		UserID:           user.ID,
-		UserName:         user.Name,
-		UserEmail:        user.Email,
-		UserVerified:     user.IsVerified,
-		UserPhone:        user.PhoneNumber,
-		UserRole:         user.Role,
-		UserAvatar:       user.Avatar,
-		UserBanks:        banks,
-		UserStatus:       user.Status,
+	userResponse := dto.UserResponse{
+		ID:               user.ID,
+		Name:             user.Name,
+		Email:            user.Email,
+		IsVerified:       user.IsVerified,
+		PhoneNumber:      user.PhoneNumber,
+		Role:             user.Role,
+		Avatar:           user.Avatar,
+		Banks:            banks,
+		Status:           user.Status,
 		DateOfBirth:      user.DateOfBirth,
 		Amount:           user.Amount,
 		AccommodationIDs: user.AccommodationIDs,
@@ -638,7 +639,7 @@ func (u UserController) GetBankSuperAdmin(c *gin.Context) {
 		return
 	}
 
-	var bank []Bank
+	var bank []dto.Bank
 	u.DB.Where("user_id = ?", user.ID).Find(&bank)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -671,25 +672,25 @@ func (u UserController) GetProfile(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
 		})
 	}
 
-	userResponse := UserResponse{
-		UserID:           user.ID,
-		UserName:         user.Name,
-		UserEmail:        user.Email,
-		UserVerified:     user.IsVerified,
-		UserPhone:        user.PhoneNumber,
-		UserRole:         user.Role,
-		UserAvatar:       user.Avatar,
-		UserBanks:        banks,
-		UserStatus:       user.Status,
+	userResponse := dto.UserResponse{
+		ID:               user.ID,
+		Name:             user.Name,
+		Email:            user.Email,
+		IsVerified:       user.IsVerified,
+		PhoneNumber:      user.PhoneNumber,
+		Role:             user.Role,
+		Avatar:           user.Avatar,
+		Banks:            banks,
+		Status:           user.Status,
 		DateOfBirth:      user.DateOfBirth,
 		Amount:           user.Amount,
 		AccommodationIDs: user.AccommodationIDs,

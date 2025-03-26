@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 // UserResponse định nghĩa response cho user
 type UserResponse struct {
 	ID               uint           `json:"id"`
@@ -7,8 +9,8 @@ type UserResponse struct {
 	Email            string         `json:"email"`
 	PhoneNumber      string         `json:"phoneNumber"`
 	Role             int            `json:"role"`
-	CreatedAt        string         `json:"createdAt"`
-	UpdatedAt        string         `json:"updatedAt"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
 	Banks            []Bank         `json:"banks"`
 	Children         []UserResponse `json:"children,omitempty"`
 	Status           int            `json:"status,omitempty"`
@@ -103,4 +105,23 @@ type ForgotPasswordRequest struct {
 type ResetPasswordRequest struct {
 	Token       string `json:"token" binding:"required"`
 	NewPassword string `json:"newPassword" binding:"required"`
+}
+type UserResponseUpdate struct {
+	ID               uint           `json:"id"`
+	Name             string         `json:"name"`
+	Email            string         `json:"email"`
+	PhoneNumber      string         `json:"phoneNumber"`
+	Role             int            `json:"role"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
+	Banks            []Bank         `json:"banks"`
+	Children         []UserResponse `json:"children,omitempty"`
+	Status           int            `json:"status,omitempty"`
+	IsVerified       bool           `json:"isVerified,omitempty"`
+	Avatar           string         `json:"avatar,omitempty"`
+	DateOfBirth      string         `json:"dateOfBirth,omitempty"`
+	Amount           int64          `json:"amount,omitempty"`
+	AccommodationIDs []int64        `json:"accommodationIds,omitempty"`
+	AdminId          *uint          `json:"adminId,omitempty"`
+	Gender           int            `json:"gender,omitempty"`
 }

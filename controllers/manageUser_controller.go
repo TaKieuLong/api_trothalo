@@ -621,9 +621,9 @@ func CalculateUserSalary(c *gin.Context) {
 		return
 	}
 
-	var banks []Bank
+	var banks []dto.Bank
 	for _, bank := range user.Banks {
-		banks = append(banks, Bank{
+		banks = append(banks, dto.Bank{
 			BankName:      bank.BankName,
 			AccountNumber: bank.AccountNumber,
 			BankShortName: bank.BankShortName,
