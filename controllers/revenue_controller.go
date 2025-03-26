@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"new/config"
+	"new/dto"
 	"new/models"
 	"new/services"
 	"sort"
@@ -16,13 +17,13 @@ import (
 )
 
 type RevenueResponse struct {
-	TotalRevenue         float64        `json:"totalRevenue"`
-	CurrentMonthRevenue  float64        `json:"currentMonthRevenue"`
-	LastMonthRevenue     float64        `json:"lastMonthRevenue"`
-	CurrentWeekRevenue   float64        `json:"currentWeekRevenue"`
-	MonthlyRevenue       []MonthRevenue `json:"monthlyRevenue"`
-	VAT                  float64        `json:"vat"`
-	ActualMonthlyRevenue float64        `json:"actualMonthlyRevenue"`
+	TotalRevenue         float64            `json:"totalRevenue"`
+	CurrentMonthRevenue  float64            `json:"currentMonthRevenue"`
+	LastMonthRevenue     float64            `json:"lastMonthRevenue"`
+	CurrentWeekRevenue   float64            `json:"currentWeekRevenue"`
+	MonthlyRevenue       []dto.MonthRevenue `json:"monthlyRevenue"`
+	VAT                  float64            `json:"vat"`
+	ActualMonthlyRevenue float64            `json:"actualMonthlyRevenue"`
 }
 
 type UserRevenueResponse struct {
@@ -41,7 +42,7 @@ type UserRevenueResponse struct {
 func GetTotalRevenue(c *gin.Context) {
 	var totalRevenue, currentMonthRevenue, currentWeekRevenue float64
 	var lastMonthRevenue sql.NullFloat64
-	var monthlyRevenue []MonthRevenue
+	var monthlyRevenue []dto.MonthRevenue
 	var vat, actualMonthlyRevenue float64 // Thêm VAT và doanh thu thực tháng này
 
 	authHeader := c.GetHeader("Authorization")
@@ -109,7 +110,7 @@ func GetTotalRevenue(c *gin.Context) {
 			}
 		}
 
-		monthlyRevenue = append(monthlyRevenue, MonthRevenue{
+		monthlyRevenue = append(monthlyRevenue, dto.MonthRevenue{
 			Month:      fmt.Sprintf("Tháng %d", i),
 			Revenue:    revenue,
 			OrderCount: int(orderCount),
@@ -224,7 +225,7 @@ func GetTotal(c *gin.Context) {
 		return totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, vatLastMonth, actualMonthlyRevenue, nil
 	}
 
-	var totalResponses []ToTalResponse
+	var totalResponses []dto.TotalResponse
 	for _, user := range users {
 		totalAmount, currentMonthRevenue, lastMonthRevenue, currentWeekRevenue, vat, vatLastMonth, actualMonthlyRevenue, err := calculateRevenue(user.ID)
 
@@ -233,8 +234,8 @@ func GetTotal(c *gin.Context) {
 			return
 		}
 
-		totalResponses = append(totalResponses, ToTalResponse{
-			User: InvoiceUserResponse{
+		totalResponses = append(totalResponses, dto.TotalResponse{
+			User: dto.InvoiceUserResponse{
 				ID:          user.ID,
 				Email:       user.Email,
 				PhoneNumber: user.PhoneNumber,
