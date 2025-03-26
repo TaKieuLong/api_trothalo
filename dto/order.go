@@ -20,7 +20,25 @@ type OrderResponse struct {
 	Accommodation   AccommodationResponse     `json:"accommodation"`
 }
 
-// OrderUserResponse là DTO cho response chi tiết của order
+// ActorResponse là DTO cho thông tin user/actor
+type ActorResponse struct {
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	PhoneNumber string `json:"phoneNumber"`
+}
+
+// UpdateOrderStatusRequest là DTO cho request cập nhật trạng thái order
+type UpdateOrderStatusRequest struct {
+	Status int `json:"status" binding:"required"`
+}
+
+// StatusUpdateRequest là DTO cho request cập nhật trạng thái order với paid amount
+type StatusUpdateRequest struct {
+	ID         uint    `json:"id"`
+	Status     int     `json:"status"`
+	PaidAmount float64 `json:"paidAmount"`
+}
+
 type OrderUserResponse struct {
 	ID               uint                       `json:"id"`
 	User             ActorResponse              `json:"user"`
@@ -40,7 +58,6 @@ type OrderUserResponse struct {
 	InvoiceCode      string                     `json:"invoiceCode"`
 }
 
-// OrderAccommodationResponse là DTO cho thông tin accommodation trong order
 type OrderAccommodationResponse struct {
 	ID       uint   `json:"id"`
 	Type     int    `json:"type"`
@@ -53,7 +70,6 @@ type OrderAccommodationResponse struct {
 	Avatar   string `json:"avatar"`
 }
 
-// OrderRoomResponse là DTO cho thông tin room trong order
 type OrderRoomResponse struct {
 	ID              uint   `json:"id"`
 	AccommodationID uint   `json:"accommodationId"`
@@ -61,14 +77,6 @@ type OrderRoomResponse struct {
 	Price           int    `json:"price"`
 }
 
-// ActorResponse là DTO cho thông tin user/actor
-type ActorResponse struct {
-	Name        string `json:"name"`
-	Email       string `json:"email"`
-	PhoneNumber string `json:"phoneNumber"`
-}
-
-// CreateOrderRequest là DTO cho request tạo order
 type CreateOrderRequest struct {
 	UserID          uint   `json:"userId"`
 	AccommodationID uint   `json:"accommodationId"`
@@ -78,16 +86,4 @@ type CreateOrderRequest struct {
 	GuestName       string `json:"guestName,omitempty"`
 	GuestEmail      string `json:"guestEmail,omitempty"`
 	GuestPhone      string `json:"guestPhone,omitempty"`
-}
-
-// UpdateOrderStatusRequest là DTO cho request cập nhật trạng thái order
-type UpdateOrderStatusRequest struct {
-	Status int `json:"status" binding:"required"`
-}
-
-// StatusUpdateRequest là DTO cho request cập nhật trạng thái order với paid amount
-type StatusUpdateRequest struct {
-	ID         uint    `json:"id"`
-	Status     int     `json:"status"`
-	PaidAmount float64 `json:"paidAmount"`
 }

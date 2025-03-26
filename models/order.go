@@ -34,8 +34,6 @@ type Order struct {
 	SoldOutPrice     float64       `json:"soldOutPrice"`     // Giá sold out 5
 	DiscountPrice    float64       `json:"discountPrice"`    // Giá discount 20
 	TotalPrice       float64       `json:"totalPrice"`       // Tổng giá
-	CheckIn          string        `json:"checkIn"`
-	CheckOut         string        `json:"checkOut"`
 }
 
 type OrderRequest struct {
