@@ -19,57 +19,8 @@ import (
 	"gorm.io/gorm"
 )
 
-type OrderUserResponse struct {
-	ID               uint                       `json:"id"`
-	User             dto.Actor                  `json:"user"`
-	Accommodation    OrderAccommodationResponse `json:"accommodation"`
-	Room             []OrderRoomResponse        `json:"room"`
-	CheckInDate      string                     `json:"checkInDate"`
-	CheckOutDate     string                     `json:"checkOutDate"`
-	Status           int                        `json:"status"`
-	CreatedAt        time.Time                  `json:"createdAt"`
-	UpdatedAt        time.Time                  `json:"updatedAt"`
-	Price            int                        `json:"price"`            // Giá cơ bản cho mỗi phòng
-	HolidayPrice     float64                    `json:"holidayPrice"`     // Giá lễ
-	CheckInRushPrice float64                    `json:"checkInRushPrice"` // Giá check-in gấp
-	SoldOutPrice     float64                    `json:"soldOutPrice"`     // Giá sold out
-	DiscountPrice    float64                    `json:"discountPrice"`    // Giá discount
-	TotalPrice       float64                    `json:"totalPrice"`
-	InvoiceCode      string                     `json:"invoiceCode"`
-}
-
-type OrderAccommodationResponse struct {
-	ID       uint   `json:"id"`
-	Type     int    `json:"type"`
-	Name     string `json:"name"`
-	Address  string `json:"address"`
-	Ward     string `json:"ward"`
-	District string `json:"district"`
-	Province string `json:"province"`
-	Price    int    `json:"price"`
-	Avatar   string `json:"avatar"`
-}
-
-type OrderRoomResponse struct {
-	ID              uint   `json:"id"`
-	AccommodationID uint   `json:"accommodationId"`
-	RoomName        string `json:"roomName"`
-	Price           int    `json:"price"`
-}
-
-type CreateOrderRequest struct {
-	UserID          uint   `json:"userId"`
-	AccommodationID uint   `json:"accommodationId"`
-	RoomID          []uint `json:"roomId"`
-	CheckInDate     string `json:"checkInDate"`
-	CheckOutDate    string `json:"checkOutDate"`
-	GuestName       string `json:"guestName,omitempty"`
-	GuestEmail      string `json:"guestEmail,omitempty"`
-	GuestPhone      string `json:"guestPhone,omitempty"`
-}
-
-func convertToOrderAccommodationResponse(accommodation models.Accommodation) OrderAccommodationResponse {
-	return OrderAccommodationResponse{
+func convertToOrderAccommodationResponse(accommodation models.Accommodation) dto.OrderAccommodationResponse {
+	return dto.OrderAccommodationResponse{
 		ID:       accommodation.ID,
 		Type:     accommodation.Type,
 		Name:     accommodation.Name,
@@ -82,8 +33,8 @@ func convertToOrderAccommodationResponse(accommodation models.Accommodation) Ord
 	}
 }
 
-func convertToOrderRoomResponse(room models.Room) OrderRoomResponse {
-	return OrderRoomResponse{
+func convertToOrderRoomResponse(room models.Room) dto.OrderRoomResponse {
+	return dto.OrderRoomResponse{
 		ID:              room.RoomId,
 		AccommodationID: room.AccommodationID,
 		RoomName:        room.RoomName,
@@ -257,23 +208,23 @@ func GetOrders(c *gin.Context) {
 	}
 
 	// Chuẩn bị phản hồi
-	var orderResponses []OrderUserResponse
+	var orderResponses []dto.OrderUserResponse
 	for _, order := range filteredOrders {
-		var user dto.Actor
+		var user dto.ActorResponse
 		if order.UserID != nil {
-			user = dto.Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
+			user = dto.ActorResponse{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
 		} else {
-			user = dto.Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
+			user = dto.ActorResponse{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
 		}
 
 		accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
-		var roomResponses []OrderRoomResponse
+		var roomResponses []dto.OrderRoomResponse
 		for _, room := range order.Room {
 			roomResponse := convertToOrderRoomResponse(room)
 			roomResponses = append(roomResponses, roomResponse)
 		}
 
-		orderResponse := OrderUserResponse{
+		orderResponse := dto.OrderUserResponse{
 			ID:               order.ID,
 			User:             user,
 			Accommodation:    accommodationResponse,
@@ -306,7 +257,7 @@ func CreateOrder(c *gin.Context) {
 
 	authHeader := c.GetHeader("Authorization")
 
-	var request CreateOrderRequest
+	var request dto.CreateOrderRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Dữ liệu không hợp lệ"})
 		return
@@ -314,7 +265,7 @@ func CreateOrder(c *gin.Context) {
 
 	var currentUserID uint
 	var userId *uint
-	var actor dto.Actor
+	var actor dto.ActorResponse
 
 	if authHeader != "" {
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
@@ -334,7 +285,7 @@ func CreateOrder(c *gin.Context) {
 				userId = new(uint)
 				*userId = userInfo.ID
 
-				actor = dto.Actor{
+				actor = dto.ActorResponse{
 					Name:        userInfo.Name,
 					Email:       userInfo.Email,
 					PhoneNumber: userInfo.PhoneNumber,
@@ -350,14 +301,14 @@ func CreateOrder(c *gin.Context) {
 				userId = new(uint)
 				*userId = userInfo.ID
 
-				actor = dto.Actor{
+				actor = dto.ActorResponse{
 					Name:        userInfo.Name,
 					Email:       userInfo.Email,
 					PhoneNumber: userInfo.PhoneNumber,
 				}
 			} else {
 				userId = nil
-				actor = dto.Actor{
+				actor = dto.ActorResponse{
 					Name:        request.GuestName,
 					Email:       request.GuestEmail,
 					PhoneNumber: request.GuestPhone,
@@ -568,7 +519,7 @@ func CreateOrder(c *gin.Context) {
 		return
 	}
 
-	var user dto.Actor
+	var user dto.ActorResponse
 	if order.UserID != nil {
 		user = actor
 	} else {
@@ -576,7 +527,7 @@ func CreateOrder(c *gin.Context) {
 	}
 
 	accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
-	var roomResponses []OrderRoomResponse
+	var roomResponses []dto.OrderRoomResponse
 	if len(request.RoomID) > 0 {
 		for _, room := range order.Room {
 			roomResponse := convertToOrderRoomResponse(room)
@@ -584,7 +535,7 @@ func CreateOrder(c *gin.Context) {
 		}
 	}
 
-	orderResponse := OrderUserResponse{
+	orderResponse := dto.OrderUserResponse{
 		ID:               order.ID,
 		User:             user,
 		Accommodation:    accommodationResponse,
@@ -844,21 +795,21 @@ func GetOrderDetail(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 0, "error": "Không tìm thấy Order"})
 		return
 	}
-	var user dto.Actor
+	var user dto.ActorResponse
 	if order.UserID != nil {
-		user = dto.Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
+		user = dto.ActorResponse{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
 	} else {
-		user = dto.Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
+		user = dto.ActorResponse{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
 	}
 
 	accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
 
-	var roomResponses []OrderRoomResponse
+	var roomResponses []dto.OrderRoomResponse
 	for _, room := range order.Room {
 		roomResponse := convertToOrderRoomResponse(room)
 		roomResponses = append(roomResponses, roomResponse)
 	}
-	orderResponse := OrderUserResponse{
+	orderResponse := dto.OrderUserResponse{
 		ID:               order.ID,
 		User:             user,
 		Accommodation:    accommodationResponse,
@@ -962,17 +913,17 @@ func GetOrdersByUserId(c *gin.Context) {
 		return
 	}
 
-	orderResponses := make([]OrderUserResponse, 0)
+	orderResponses := make([]dto.OrderUserResponse, 0)
 	for _, order := range orders {
-		var user dto.Actor
+		var user dto.ActorResponse
 		if order.UserID != nil {
-			user = dto.Actor{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
+			user = dto.ActorResponse{Name: order.User.Name, Email: order.User.Email, PhoneNumber: order.User.PhoneNumber}
 		} else {
-			user = dto.Actor{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
+			user = dto.ActorResponse{Name: order.GuestName, Email: order.GuestEmail, PhoneNumber: order.GuestPhone}
 		}
 
 		accommodationResponse := convertToOrderAccommodationResponse(order.Accommodation)
-		var roomResponses []OrderRoomResponse
+		var roomResponses []dto.OrderRoomResponse
 		for _, room := range order.Room {
 			roomResponse := convertToOrderRoomResponse(room)
 			roomResponses = append(roomResponses, roomResponse)
@@ -986,7 +937,7 @@ func GetOrdersByUserId(c *gin.Context) {
 			}
 		}
 
-		orderResponse := OrderUserResponse{
+		orderResponse := dto.OrderUserResponse{
 			ID:               order.ID,
 			User:             user,
 			Accommodation:    accommodationResponse,

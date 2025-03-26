@@ -2,6 +2,7 @@ package dto
 
 import (
 	"new/types"
+	"time"
 )
 
 // OrderResponse là DTO cho response của order
@@ -28,8 +29,8 @@ type OrderUserResponse struct {
 	CheckInDate      string                     `json:"checkInDate"`
 	CheckOutDate     string                     `json:"checkOutDate"`
 	Status           int                        `json:"status"`
-	CreatedAt        string                     `json:"createdAt"`
-	UpdatedAt        string                     `json:"updatedAt"`
+	CreatedAt        time.Time                  `json:"createdAt"`
+	UpdatedAt        time.Time                  `json:"updatedAt"`
 	Price            int                        `json:"price"`            // Giá cơ bản cho mỗi phòng
 	HolidayPrice     float64                    `json:"holidayPrice"`     // Giá lễ
 	CheckInRushPrice float64                    `json:"checkInRushPrice"` // Giá check-in gấp
