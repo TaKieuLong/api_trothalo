@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"new/config"
 	_ "new/docs"
 	"new/jobs"
+	"new/models"
 	"new/routes"
 	"new/services"
 	"new/services/logger"
@@ -18,20 +21,77 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// @title           API Trothalo
-// @version         1.0
-// @description     API hệ thống đặt lưu trú
-// @termsOfService  http://swagger.io/terms/
+func recreateUserTable() {
+	// if err := config.DB.AutoMigrate(&models.Room{}, &models.Benefit{}, &models.User{}, models.Rate{}, models.Order{}, models.Invoice{}, models.Bank{}, models.Accommodation{}, models.AccommodationStatus{}, models.BankFake{}, models.UserDiscount{}, models.Discount{}, models.Holiday{}, models.RoomStatus{}, models.WithdrawalHistory{}); err != nil {
+	// 	panic("Failed to migrate tables: " + err.Error())
+	// }
 
-// @contact.name   API Support
-// @contact.url    http://www.swagger.io/support
-// @contact.email  support@swagger.io
+	//test	Db
+	testUserID := uint(2)
 
-// @license.name  Apache 2.0
-// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+	for i := 1; i <= 500; i++ {
+		// Tạo dữ liệu giả cho hình ảnh với danh sách URL mà bạn yêu cầu
+		imgData, err := json.Marshal([]string{
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413058/uploads/qie2oeiajk8j7wwg8seh.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413059/uploads/domlvkwnaoklhjqtwqmu.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413059/uploads/eskliphwt7yc9mhmczvm.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413060/uploads/upck5rgvr7wowrx2bzaz.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413060/uploads/htx5nzcm9i6i5y70ybgv.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413061/uploads/xiqtah9exsn6jhybkwlo.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413061/uploads/wvvnu5rpgndrl79n5exq.jpg",
+			"https://res.cloudinary.com/dqipg0or3/image/upload/v1740413063/uploads/jqufrmzvcp2adssedlz5.jpg",
+		})
+		if err != nil {
+			log.Fatalf("Lỗi khi mã hóa imgData: %v", err)
+		}
 
-// @host      localhost:8080
-// @BasePath  /api/v1
+		// Tạo dữ liệu giả cho nội thất
+		furnitureData, err := json.Marshal([]string{
+			"Chair",
+			"Table",
+		})
+		if err != nil {
+			log.Fatalf("Lỗi khi mã hóa furnitureData: %v", err)
+		}
+
+		accommodation := models.Accommodation{
+			Type:             2,
+			UserID:           testUserID,
+			Name:             fmt.Sprintf("Test Accommodation %d", i),
+			Address:          fmt.Sprintf("Test Address %d, Some Street", i),
+			Avatar:           "https://res.cloudinary.com/dqipg0or3/image/upload/v1740413047/avatars/obtrpfkzvr5k83bur5w0.jpg",
+			Img:              imgData,
+			ShortDescription: "Đây là mô tả ngắn cho test data.",
+			Description:      "Đây là mô tả chi tiết cho test data.",
+			Status:           1,
+			Num:              10,
+			Furniture:        furnitureData,
+			People:           2,
+			Price:            100 + i,
+			NumBed:           2,
+			NumTolet:         1,
+			TimeCheckIn:      "14:00",
+			TimeCheckOut:     "12:00",
+			Province:         "Test Province",
+			District:         "Test District",
+			Ward:             "Test Ward",
+			Longitude:        106.0 + float64(i)/100,
+			Latitude:         10.0 + float64(i)/100,
+			CreateAt:         time.Now(),
+			UpdateAt:         time.Now(),
+			Benefits: []models.Benefit{
+				{Id: 1, Name: "Wifi miễn phí"},
+				{Id: 2, Name: "Hồ bơi"},
+			},
+		}
+
+		if err := config.DB.Create(&accommodation).Error; err != nil {
+			log.Fatalf("Lỗi khi tạo Accommodation %d: %v", i, err)
+		}
+		fmt.Printf("Đã tạo Accommodation ID: %d\n", accommodation.ID)
+	}
+
+}
 
 func main() {
 	// Load environment variables
@@ -52,6 +112,8 @@ func main() {
 	})
 	userServiceAdapter := services.NewUserServiceAdapter(userService)
 	jobs.SetUserAmountUpdater(userServiceAdapter)
+
+	recreateUserTable()
 
 	// Khởi tạo cron jobs
 	if err := jobs.InitCronJobs(c, m); err != nil {

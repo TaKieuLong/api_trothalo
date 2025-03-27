@@ -1,4 +1,4 @@
-ENV=dev
+ENV=dev || qc để test
 PORT=8083
 
 REDIS_ADDR=13.214.89.85:6379
@@ -15,6 +15,12 @@ DEV_DB_PASSWORD=admin
 DEV_DB_NAME=ttl_db
 
 MAPBOX_KEY=pk.eyJ1IjoidGFraWV1bG9uZyIsImEiOiJjbTNyYXR0Y3IwM2xjMmpzY2tsdXB1bDg1In0.N2Rp_nzqe3bZKvE6gQL-tw
+
+QC_DB_HOST=13.214.89.85
+QC_DB_PORT=5432
+QC_DB_USER=postgres
+QC_DB_PASSWORD=admin
+QC_DB_NAME=test_db
 
 # API Trothalo
 

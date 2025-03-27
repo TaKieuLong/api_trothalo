@@ -34,7 +34,7 @@ type CreateUserRequest struct {
 	Username      string `json:"username"`
 	Email         string `json:"email" binding:"required,email"`
 	Password      string `json:"password" binding:"required"`
-	Phone         string `json:"phone" binding:"required"`
+	PhoneNumber   string `json:"phoneNumber" binding:"required"`
 	Role          int    `json:"role"`
 	BankID        int    `json:"bankId"`
 	AccountNumber string `json:"accountNumber"`

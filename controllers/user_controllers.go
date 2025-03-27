@@ -225,18 +225,18 @@ func (u UserController) GetUsers(c *gin.Context) {
 }
 
 func (u *UserController) CreateUser(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		response.Unauthorized(c)
-		return
-	}
+	// authHeader := c.GetHeader("Authorization")
+	// if authHeader == "" {
+	// 	response.Unauthorized(c)
+	// 	return
+	// }
 
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	currentUserID, err := GetIDFromToken(tokenString)
-	if err != nil {
-		response.Unauthorized(c)
-		return
-	}
+	// tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	// currentUserID, err := GetIDFromToken(tokenString)
+	// if err != nil {
+	// 	response.Unauthorized(c)
+	// 	return
+	// }
 
 	var req dto.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -245,13 +245,13 @@ func (u *UserController) CreateUser(c *gin.Context) {
 	}
 
 	if req.Role == 1 || req.Role == 2 || req.Role == 3 {
-		if req.Role == 3 {
-			var admin models.User
-			if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
-				response.BadRequest(c, "Không tìm thấy admin với ID: "+fmt.Sprint(currentUserID))
-				return
-			}
-		}
+		// if req.Role == 3 {
+		// 	var admin models.User
+		// 	if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
+		// 		response.BadRequest(c, "Không tìm thấy admin với ID: "+fmt.Sprint(currentUserID))
+		// 		return
+		// 	}
+		// }
 
 		var bankFake models.BankFake
 		if err := u.DB.Where("id = ?", req.BankID).First(&bankFake).Error; err != nil {
@@ -268,7 +268,7 @@ func (u *UserController) CreateUser(c *gin.Context) {
 		userValues := models.User{
 			Email:       req.Email,
 			Password:    req.Password,
-			PhoneNumber: req.Phone,
+			PhoneNumber: req.PhoneNumber,
 			Role:        req.Role,
 			Name:        req.Username,
 			Amount:      req.Amount,
@@ -298,19 +298,19 @@ func (u *UserController) CreateUser(c *gin.Context) {
 			return
 		}
 
-		if req.Role == 3 {
-			var admin models.User
-			if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy admin với ID: " + fmt.Sprint(currentUserID)})
-				return
-			}
+		// if req.Role == 3 {
+		// 	var admin models.User
+		// 	if err := u.DB.Where("id = ?", currentUserID).First(&admin).Error; err != nil {
+		// 		c.JSON(http.StatusBadRequest, gin.H{"code": 0, "mess": "Không tìm thấy admin với ID: " + fmt.Sprint(currentUserID)})
+		// 		return
+		// 	}
 
-			admin.Children = append(admin.Children, user)
-			if err := u.DB.Save(&admin).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật thông tin admin: " + err.Error()})
-				return
-			}
-		}
+		// 	admin.Children = append(admin.Children, user)
+		// 	if err := u.DB.Save(&admin).Error; err != nil {
+		// 		c.JSON(http.StatusInternalServerError, gin.H{"code": 0, "mess": "Không thể cập nhật thông tin admin: " + err.Error()})
+		// 		return
+		// 	}
+		// }
 
 		rdb, redisErr := config.ConnectRedis()
 		if redisErr == nil {
